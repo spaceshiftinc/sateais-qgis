@@ -26,7 +26,7 @@ tags=sar,sentinel-1,satellite,remote sensing,ship detection,oil slick,building d
 category=Web
 
 changelog=
-    0.1.0 (2026-07-08) — First public release
+    0.1.0 (2026-07-16) — First public release
     - Run 5 SAR detections from QGIS: ship, oil slick, new/disappeared building, time series
     - Draw an AOI on the canvas or paste WKT; results load as styled map layers
     - Submitted AOI is added as a toggleable outline layer alongside the result
