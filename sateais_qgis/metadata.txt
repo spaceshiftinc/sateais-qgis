@@ -1,0 +1,34 @@
+[general]
+name=SateAIs API for QGIS
+qgisMinimumVersion=3.34
+qgisMaximumVersion=3.99
+description=Run SateAIs SAR satellite detection (ship, oil slick, new building, disappear building, time series) directly from QGIS.
+description[ja]=SateAIs の SAR 衛星画像解析（船舶 / オイルスリック / 新規建物 / 消失建物 / 時系列変化）を QGIS から実行できるプラグイン。
+version=0.1.0
+author=SpaceShift Inc.
+email=support@spcsft.com
+
+about=SateAIs is a SAR satellite image analysis platform (currently supporting Sentinel-1). This plugin lets GIS users invoke detection jobs from QGIS, view results as map layers, and manage jobs without leaving the QGIS environment. Requires a SateAIs API key from https://console.spcsft.com.
+about[ja]=SateAIs は SAR 衛星画像解析プラットフォーム（現在は Sentinel-1 対応）です。このプラグインを使うと、GIS 利用者は QGIS から検出ジョブを投入し、結果を地図レイヤとして表示・管理できます。利用には https://console.spcsft.com で発行する API キーが必要です。
+
+tracker=https://github.com/spaceshiftinc/sateais-qgis/issues
+repository=https://github.com/spaceshiftinc/sateais-qgis
+homepage=https://docs.spcsft.com
+icon=resources/icons/sateais.png
+
+experimental=False
+deprecated=False
+server=False
+hasProcessingProvider=no
+
+tags=sar,sentinel-1,satellite,remote sensing,ship detection,oil slick,building detection,change detection,sateais
+
+category=Web
+
+changelog=
+    0.1.0 (2026-07-08) — First public release
+    - Run 5 SAR detections from QGIS: ship, oil slick, new/disappeared building, time series
+    - Draw an AOI on the canvas or paste WKT; results load as styled map layers
+    - Submitted AOI is added as a toggleable outline layer alongside the result
+    - Jobs tab: background status polling, sync of recent server-side jobs, search
+    - Welcome page and guided API key setup (key from https://console.spcsft.com)

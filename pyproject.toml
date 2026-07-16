@@ -1,0 +1,17 @@
+# Dev tooling config only. This repo is distributed as a QGIS plugin, not via PyPI.
+
+[tool.ruff]
+line-length = 100
+# QGIS LTR 3.34 / 3.40 ship with Python 3.9; pin the linter accordingly.
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = false
+
+[tool.pytest.ini_options]
+testpaths = ["sateais_qgis/tests"]

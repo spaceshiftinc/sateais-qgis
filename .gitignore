@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# QGIS
+*.qgs~
+*.qgz~
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.zip
+
+# Local dev
+.env
+.env.local
+
+# uv dev tooling (pyproject.toml は dev tooling config のみで PyPI 配布物ではない)
+uv.lock
+symbology-style.db
