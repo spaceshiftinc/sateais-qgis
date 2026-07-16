@@ -33,14 +33,16 @@ full coverage locally.
 Run both before every push — CI-equivalent checks:
 
 ```bash
-uv run --no-project --with ruff ruff format sateais_qgis/
-uv run --no-project --with ruff ruff check sateais_qgis/
+uv run --no-project --with ruff ruff format .
+uv run --no-project --with ruff ruff check .
 ```
 
 ## Branches and pull requests
 
 - Default branch: `develop`. All changes go through a feature branch + PR,
   including small fixes.
+- `main` is the release branch. It only advances through release PRs from
+  `develop` (see [Release](#release)).
 - PR titles follow the conventional prefixes used in the log:
   `feat: …` / `fix: …` / `chore: …` / `docs: …`.
 - Update the **Unreleased** section of [CHANGELOG.md](../CHANGELOG.md) in the
@@ -60,6 +62,15 @@ uv run --no-project --with ruff ruff check sateais_qgis/
 
 ## Release
 
-1. Bump `version=` in `sateais_qgis/metadata.txt`.
-2. Move the CHANGELOG *Unreleased* entries under the new version heading.
-3. Zip the `sateais_qgis/` directory and upload to the QGIS Plugin Repository.
+1. Bump `version=` in `sateais_qgis/metadata.txt` and move the CHANGELOG
+   *Unreleased* entries under the new version heading with the release date
+   (mirror the summary in the `changelog=` block of `metadata.txt`).
+2. Open a release PR from `develop` to `main` and merge it with a **merge
+   commit** — never squash or rebase it, so `main` keeps the exact commits of
+   `develop` and the branches never diverge.
+3. Tag the merge commit on `main` as `vX.Y.Z` and push the tag.
+   [release.yml](../.github/workflows/release.yml) builds the plugin ZIP and
+   attaches it to the GitHub Release (creating the release if it does not
+   exist yet). Release tags are protected: they cannot be moved or deleted.
+4. Upload the CI-built ZIP from the GitHub Release to the
+   [QGIS Plugin Repository](https://plugins.qgis.org/plugins/).
