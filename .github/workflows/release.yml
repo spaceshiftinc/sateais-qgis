@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches metadata.txt version
+        run: |
+          VERSION=$(sed -n 's/^version=//p' sateais_qgis/metadata.txt | tr -d '[:space:]')
+          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match metadata.txt version ${VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Build plugin ZIP
+        run: bash scripts/package.sh
+
+      # If the release already exists (e.g. created manually with notes),
+      # just attach the CI-built ZIP; otherwise create the release.
+      - name: Create GitHub Release with ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/sateais_qgis-*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/sateais_qgis-*.zip --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          fi
