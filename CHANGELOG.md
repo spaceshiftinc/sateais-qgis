@@ -3,6 +3,12 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-22
+
+### Changed
+- Plugin contact email is now `osgeo@spcsft.com` (repository correspondence and
+  author contact consolidated on one monitored address).
+
 ## [0.1.1] - 2026-07-22
 
 ### Changed
