@@ -23,7 +23,9 @@ from qgis.PyQt.QtCore import QSettings
 ORG_NAME = "SpaceShiftInc"
 APP_NAME = "SateAIs"
 
-_KEY_API_KEY = "api_key"
+# Name of the QSettings entry that stores the user's key. The string is the
+# entry name itself, not a credential value.
+_SETTINGS_ENTRY = "api_key"  # pragma: allowlist secret
 
 
 def _settings() -> QSettings:
@@ -32,16 +34,16 @@ def _settings() -> QSettings:
 
 def get_api_key() -> str | None:
     """Return the saved API key, or None if not set."""
-    value = _settings().value(_KEY_API_KEY, None, type=str)
+    value = _settings().value(_SETTINGS_ENTRY, None, type=str)
     return value or None
 
 
 def set_api_key(api_key: str) -> None:
-    _settings().setValue(_KEY_API_KEY, api_key)
+    _settings().setValue(_SETTINGS_ENTRY, api_key)
 
 
 def clear_api_key() -> None:
-    _settings().remove(_KEY_API_KEY)
+    _settings().remove(_SETTINGS_ENTRY)
 
 
 def mask_api_key(api_key: str | None) -> str:

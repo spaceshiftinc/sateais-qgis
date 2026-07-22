@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 from typing import Any
 
@@ -62,22 +63,24 @@ class SubmitAnalysisWorker(QThread):
         )
         from ..core.client_factory import AuthNotConfiguredError, build_client
 
-        self._log(f"submit {self._analysis_type} kwargs={self._mask_kwargs()}", Qgis.Info)
+        self._log(
+            f"submit {self._analysis_type} kwargs={self._mask_kwargs()}", Qgis.MessageLevel.Info
+        )
 
         try:
             client = build_client()
         except AuthNotConfiguredError:
-            self._log("no API key configured", Qgis.Warning)
+            self._log("no API key configured", Qgis.MessageLevel.Warning)
             self.finished_signal.emit(False, ERROR_AUTH_NOT_CONFIGURED)
             return
 
         try:
             method = getattr(client.analyze, self._analysis_type)
             job = method(**self._kwargs)
-            self._log(f"submitted job_id={job.job_id}", Qgis.Success)
+            self._log(f"submitted job_id={job.job_id}", Qgis.MessageLevel.Success)
             self.finished_signal.emit(True, job.job_id)
         except InvalidAnalysisRequestError as e:
-            self._log(f"client-side validation failed: {e}", Qgis.Warning)
+            self._log(f"client-side validation failed: {e}", Qgis.MessageLevel.Warning)
             self.finished_signal.emit(False, ERROR_INVALID_INPUT)
         except AuthenticationError as e:
             self._log_api_error("authentication failed", e)
@@ -110,23 +113,23 @@ class SubmitAnalysisWorker(QThread):
             self._log_api_error("API error", e)
             self.finished_signal.emit(False, ERROR_SERVER_ERROR)
         except Exception as e:  # noqa: BLE001
-            self._log(f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.Critical)
+            self._log(
+                f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.MessageLevel.Critical
+            )
             self.finished_signal.emit(False, ERROR_NETWORK_ERROR)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     @staticmethod
-    def _log(message: str, level: int = Qgis.Info) -> None:
+    def _log(message: str, level: int = Qgis.MessageLevel.Info) -> None:
         QgsMessageLog.logMessage(message, LOG_TAG, level)
 
     def _log_api_error(self, label: str, exc: Any) -> None:
         status = getattr(exc, "status_code", "?")
         code = getattr(exc, "code", None) or "-"
         message = getattr(exc, "message", str(exc))
-        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.Warning)
+        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.MessageLevel.Warning)
 
     def _mask_kwargs(self) -> dict[str, Any]:
         """Build a log-safe copy of kwargs.

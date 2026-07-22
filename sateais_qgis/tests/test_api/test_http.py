@@ -56,7 +56,7 @@ def _http_error(status: int, body_dict, reason: str = "error"):
 
 
 class TestUrllibApiClientSubmit:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_submit_ship_with_scene_id(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(
             {
@@ -83,7 +83,7 @@ class TestUrllibApiClientSubmit:
         assert body["satellite_id"] == "sentinel-1"
         assert "polygon" not in body
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_submit_newbuilding_polygon_dates(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response({"job_id": "job-2", "status": "pending"})
 
@@ -104,7 +104,7 @@ class TestUrllibApiClientSubmit:
 
 
 class TestUrllibApiClientGetJob:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_get_job_completed(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(
             {
@@ -126,7 +126,7 @@ class TestUrllibApiClientGetJob:
         assert sent_req.method == "GET"
         assert sent_req.full_url == "https://api.spcsft.com/api/v1/jobs/job-1"
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_get_job_result_returns_geojson(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(
             {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
@@ -137,7 +137,7 @@ class TestUrllibApiClientGetJob:
 
 
 class TestUrllibApiClientErrorMapping:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_401_maps_to_authentication_error(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             401, {"error": {"code": "UNAUTHORIZED", "message": "Invalid API key"}}
@@ -149,7 +149,7 @@ class TestUrllibApiClientErrorMapping:
         assert exc.value.code == "UNAUTHORIZED"
         assert "Invalid" in exc.value.message
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_402_maps_to_insufficient_credits(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             402, {"error": {"code": "INSUFFICIENT_CREDITS", "message": "no money"}}
@@ -158,7 +158,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(InsufficientCreditsError):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_403_maps_to_permission_denied(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             403,
@@ -172,7 +172,7 @@ class TestUrllibApiClientErrorMapping:
         # PermissionDeniedError must NOT subclass AuthenticationError
         assert not isinstance(exc.value, AuthenticationError)
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_404_maps_to_not_found(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             404, {"error": {"code": "NOT_FOUND", "message": "Job not found"}}
@@ -181,7 +181,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(NotFoundError):
             client.get_job("nope")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_429_maps_to_rate_limit(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             429, {"error": {"code": "RATE_LIMIT_EXCEEDED", "message": "slow down"}}
@@ -190,7 +190,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(RateLimitError):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_400_maps_to_validation_error(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             400,
@@ -200,7 +200,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(ValidationError):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_409_maps_to_conflict(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             409,
@@ -210,7 +210,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(ConflictError):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_410_maps_to_not_found(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             410, {"error": {"code": "GONE", "message": "expired"}}
@@ -220,7 +220,7 @@ class TestUrllibApiClientErrorMapping:
             client.get_job("x")
         assert exc.value.code == "GONE"
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_413_maps_to_payload_too_large(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             413, {"error": {"code": "PAYLOAD_TOO_LARGE", "message": "too big"}}
@@ -229,7 +229,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(PayloadTooLargeError):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_500_maps_to_server_error(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(500, {})
         client = UrllibApiClient(api_key="sk_test")
@@ -237,7 +237,7 @@ class TestUrllibApiClientErrorMapping:
             client.get_job("x")
         assert exc.value.status_code == 500
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_502_and_504_map_to_server_error(self, mock_urlopen):
         for status in (502, 504):
             mock_urlopen.side_effect = _http_error(status, {})
@@ -245,7 +245,7 @@ class TestUrllibApiClientErrorMapping:
             with pytest.raises(ServerError):
                 client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_unmapped_status_falls_back_to_apierror(self, mock_urlopen):
         # 418 is not in the table; the generic APIError must be raised.
         mock_urlopen.side_effect = _http_error(418, {})
@@ -255,14 +255,14 @@ class TestUrllibApiClientErrorMapping:
         assert type(exc.value) is APIError
         assert exc.value.status_code == 418
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_url_error_maps_to_connection_error(self, mock_urlopen):
         mock_urlopen.side_effect = urllib.error.URLError("name resolution failed")
         client = UrllibApiClient(api_key="sk_test")
         with pytest.raises(APIError, match="connection error"):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_socket_timeout_wrapped_in_url_error_maps_to_timeout(self, mock_urlopen):
         # urllib wraps socket timeouts in URLError, so the timeout branch must
         # inspect ``reason`` — a bare ``except TimeoutError`` never fires here.
@@ -271,7 +271,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(APIError, match="timed out"):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_bare_socket_timeout_maps_to_timeout(self, mock_urlopen):
         # Timeouts raised outside urlopen's URLError wrapping (e.g. during read()).
         mock_urlopen.side_effect = socket.timeout("timed out")
@@ -279,7 +279,7 @@ class TestUrllibApiClientErrorMapping:
         with pytest.raises(APIError, match="timed out"):
             client.get_job("x")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_legacy_error_format_compat(self, mock_urlopen):
         """Legacy ``{"error_code": ..., "error_message": ...}`` is also supported."""
         mock_urlopen.side_effect = _http_error(
@@ -292,7 +292,7 @@ class TestUrllibApiClientErrorMapping:
 
 
 class TestListJobs:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_parses_items_including_endpoint_id(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(
             {
@@ -308,7 +308,7 @@ class TestListJobs:
         assert jobs[0].endpoint_id == "ship"
         assert jobs[1].status == JobStatus.PROCESSING
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_builds_filter_query(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response({"jobs": []})
         client = UrllibApiClient(api_key="sk_test")
@@ -319,7 +319,7 @@ class TestListJobs:
         assert "endpoint_id=ship" in url
         assert "limit=5" in url
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_no_query_string_without_filters(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response({"jobs": []})
         client = UrllibApiClient(api_key="sk_test")
@@ -327,7 +327,7 @@ class TestListJobs:
         url = mock_urlopen.call_args[0][0].full_url
         assert url.endswith("/api/v1/jobs")
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_rejects_malformed_payload(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response({"unexpected": True})
         client = UrllibApiClient(api_key="sk_test")
@@ -365,7 +365,7 @@ class TestJobFromDict:
 
 
 class TestGetMe:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_returns_user_info(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response(
             {
@@ -387,7 +387,7 @@ class TestGetMe:
         assert sent_req.method == "GET"
         assert sent_req.full_url == "https://api.spcsft.com/api/v1/me"
 
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_invalid_key_raises_auth_error(self, mock_urlopen):
         mock_urlopen.side_effect = _http_error(
             401, {"error": {"code": "UNAUTHORIZED", "message": "Invalid API key"}}
@@ -448,7 +448,7 @@ class TestBaseUrlSchemeValidation:
 
 
 class TestPathParameterEscaping:
-    @patch("urllib.request.urlopen")
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
     def test_job_id_with_slash_is_escaped(self, mock_urlopen):
         mock_urlopen.return_value = _mock_response({"job_id": "x", "status": "pending"})
         client = UrllibApiClient(api_key="sk_test")

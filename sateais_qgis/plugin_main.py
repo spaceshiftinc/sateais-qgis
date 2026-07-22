@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -38,15 +39,13 @@ class SateAIsPlugin:
         from .gui.dock_widget import SateAIsDockWidget
 
         # Drop tracked jobs older than the server-side retention window.
-        try:
+        # Never block plugin startup on persistence errors.
+        with contextlib.suppress(Exception):
             job_tracker.cleanup_expired()
-        except Exception:  # noqa: BLE001
-            # Never block plugin startup on persistence errors.
-            pass
 
         self._dock = SateAIsDockWidget(self.iface, parent=self.iface.mainWindow())
         self._dock.settings_requested.connect(self._on_settings_clicked)
-        self.iface.addDockWidget(Qt.RightDockWidgetArea, self._dock)
+        self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
         self._dock.hide()
 
         brand_icon = QIcon(_BRAND_ICON_PATH)
@@ -97,11 +96,9 @@ class SateAIsPlugin:
         self.actions.clear()
 
         if self._toolbar_action is not None:
-            try:
+            # 既に外されていれば無視。
+            with contextlib.suppress(Exception):
                 self.iface.removeToolBarIcon(self._toolbar_action)
-            except Exception:  # noqa: BLE001
-                # 既に外されていれば無視。
-                pass
             self._toolbar_action = None
 
         if self._dock is not None:
@@ -122,11 +119,11 @@ class SateAIsPlugin:
         from .gui.auth_dialog import AuthDialog
 
         dialog = AuthDialog(parent=self.iface.mainWindow())
-        if dialog.exec_():
+        if dialog.exec():
             self.iface.messageBar().pushMessage(
                 PLUGIN_NAME,
                 self.tr("Credentials saved."),
-                level=Qgis.Success,
+                level=Qgis.MessageLevel.Success,
                 duration=4,
             )
         if self._dock is not None:

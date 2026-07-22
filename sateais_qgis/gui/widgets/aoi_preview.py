@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -81,23 +83,21 @@ class AoiPreview:
     # --- internal ------------------------------------------------------------
 
     def _make_rubber_band(self) -> QgsRubberBand:
-        rb = QgsRubberBand(self.canvas, QgsWkbTypes.PolygonGeometry)
+        rb = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         rb.setStrokeColor(PREVIEW_COLOR)
         rb.setFillColor(PREVIEW_FILL)
         rb.setWidth(PREVIEW_WIDTH)
-        rb.setLineStyle(Qt.DashLine)
+        rb.setLineStyle(Qt.PenStyle.DashLine)
         return rb
 
     def _discard_rubber_band(self) -> None:
         if self._rubber_band is None:
             return
-        self._rubber_band.reset(QgsWkbTypes.PolygonGeometry)
-        try:
+        self._rubber_band.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
+        with contextlib.suppress(Exception):
             scene = self.canvas.scene()
             if scene is not None:
                 scene.removeItem(self._rubber_band)
-        except Exception:  # noqa: BLE001
-            pass
         self._rubber_band = None
 
 

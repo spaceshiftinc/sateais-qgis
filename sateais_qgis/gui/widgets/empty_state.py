@@ -10,7 +10,6 @@ into the QGIS message bar (which segfaults on macOS), timer stopped while hidden
 from __future__ import annotations
 
 import math
-import random
 
 from qgis.PyQt.QtCore import QCoreApplication, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QBrush, QColor, QPainter, QRadialGradient
@@ -44,18 +43,30 @@ class EmptyState(QWidget):
 
     @staticmethod
     def _make_stars(n: int) -> list[dict]:
-        rng = random.Random(_STAR_SEED)
+        # Deterministic layout from a tiny LCG (Numerical Recipes constants).
+        # Positions are purely decorative — nothing security-sensitive — and a
+        # fixed sequence keeps the starfield stable across repaints/sessions.
+        state = _STAR_SEED
+
+        def rnd() -> float:
+            nonlocal state
+            state = (state * 1664525 + 1013904223) % 2**32
+            return state / 2**32
+
+        def uniform(low: float, high: float) -> float:
+            return low + (high - low) * rnd()
+
         stars: list[dict] = []
         for _ in range(n):
             stars.append(
                 {
-                    "x": rng.random(),
-                    "y": rng.random(),
-                    "r": rng.uniform(0.6, 1.7),
-                    "base": rng.uniform(0.12, 0.55),
-                    "amp": rng.uniform(0.10, 0.40),
-                    "phase": rng.uniform(0.0, math.tau),
-                    "speed": rng.uniform(0.4, 1.2),
+                    "x": rnd(),
+                    "y": rnd(),
+                    "r": uniform(0.6, 1.7),
+                    "base": uniform(0.12, 0.55),
+                    "amp": uniform(0.10, 0.40),
+                    "phase": uniform(0.0, math.tau),
+                    "speed": uniform(0.4, 1.2),
                 }
             )
         return stars
@@ -68,7 +79,7 @@ class EmptyState(QWidget):
 
         title = QLabel(self.tr("Ready when you are"))
         title.setObjectName("EmptyTitle")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         subtitle = QLabel(
@@ -77,7 +88,7 @@ class EmptyState(QWidget):
             )
         )
         subtitle.setObjectName("EmptySubtitle")
-        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
@@ -86,7 +97,7 @@ class EmptyState(QWidget):
         btn_row.addStretch()
         self.start_button = QPushButton(self.tr("Start an analysis"))
         self.start_button.setObjectName("PrimaryButton")
-        self.start_button.setCursor(Qt.PointingHandCursor)
+        self.start_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_button.clicked.connect(self.start_requested.emit)
         btn_row.addWidget(self.start_button)
         btn_row.addStretch()
@@ -125,7 +136,7 @@ class EmptyState(QWidget):
             return
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         glow = QRadialGradient(
             rect.width() * 0.5,
@@ -136,7 +147,7 @@ class EmptyState(QWidget):
         glow.setColorAt(1.0, _BG_DEEP)
         painter.fillRect(rect, QBrush(glow))
 
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         for star in self._stars:
             twinkle = star["base"] + star["amp"] * math.sin(self._t * star["speed"] + star["phase"])
             alpha = max(0.0, min(1.0, twinkle))

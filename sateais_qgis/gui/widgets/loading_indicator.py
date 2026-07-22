@@ -90,7 +90,7 @@ class OrbitingSatellite(QWidget):
             return
 
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         cx = rect.width() / 2.0
         cy = rect.height() / 2.0
@@ -100,7 +100,7 @@ class OrbitingSatellite(QWidget):
         glow = QRadialGradient(cx, cy, earth_radius * 2.2)
         glow.setColorAt(0.0, _EARTH_GLOW_INNER)
         glow.setColorAt(1.0, _EARTH_GLOW_OUTER)
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(glow))
         painter.drawEllipse(
             int(cx - earth_radius * 2.2),
@@ -114,9 +114,9 @@ class OrbitingSatellite(QWidget):
         orbit_ry = earth_radius * 1.35
         pen = QPen(_ORBIT_COLOR)
         pen.setWidthF(1.0)
-        pen.setStyle(Qt.DotLine)
+        pen.setStyle(Qt.PenStyle.DotLine)
         painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(
             int(cx - orbit_rx),
             int(cy - orbit_ry),
@@ -149,7 +149,7 @@ class OrbitingSatellite(QWidget):
         panel_w = body * 2.0
         panel_h = body * 0.5
 
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(_SATELLITE_PANEL))
         painter.drawRect(int(-panel_w - body * 0.4), int(-panel_h / 2), int(panel_w), int(panel_h))
         painter.drawRect(int(body * 0.4), int(-panel_h / 2), int(panel_w), int(panel_h))

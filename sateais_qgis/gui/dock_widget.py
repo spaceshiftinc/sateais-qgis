@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from qgis.core import Qgis
 from qgis.gui import QgsMessageBarItem
 from qgis.PyQt.QtCore import QCoreApplication, Qt, pyqtSignal
@@ -29,7 +31,9 @@ class SateAIsDockWidget(QDockWidget):
         super().__init__("SateAIs", parent)
         self.iface = iface
         self.setObjectName("SateAIsDockWidget")
-        self.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
 
         self._polygon_picker: PolygonPicker | None = None
         self._previous_map_tool = None
@@ -99,7 +103,7 @@ class SateAIsDockWidget(QDockWidget):
             "SateAIs",
             self.tr("Drag a rectangle on the map (press, drag, release). Esc to cancel."),
         )
-        self.iface.messageBar().pushWidget(self._pick_message_item, Qgis.Info)
+        self.iface.messageBar().pushWidget(self._pick_message_item, Qgis.MessageLevel.Info)
 
         self.analysis_panel.set_pick_in_progress(True)
 
@@ -139,10 +143,8 @@ class SateAIsDockWidget(QDockWidget):
 
     def _dismiss_pick_message(self) -> None:
         if self._pick_message_item is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.iface.messageBar().popWidget(self._pick_message_item)
-            except Exception:  # noqa: BLE001
-                pass
             self._pick_message_item = None
 
     def _restore_map_tool(self) -> None:
@@ -174,7 +176,7 @@ class SateAIsDockWidget(QDockWidget):
             self.iface.messageBar().pushMessage(
                 "SateAIs",
                 self.tr("Could not preview the AOI for this job."),
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
                 duration=4,
             )
             return
@@ -184,7 +186,7 @@ class SateAIsDockWidget(QDockWidget):
         self.iface.messageBar().pushMessage(
             "SateAIs",
             self.tr("This job was submitted with a scene ID — no AOI to preview."),
-            level=Qgis.Info,
+            level=Qgis.MessageLevel.Info,
             duration=4,
         )
 
