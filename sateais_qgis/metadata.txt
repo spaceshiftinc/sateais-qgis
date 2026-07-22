@@ -4,9 +4,9 @@ qgisMinimumVersion=3.34
 qgisMaximumVersion=3.99
 description=Run SateAIs SAR satellite detection (ship, oil slick, new building, disappear building, time series) directly from QGIS.
 description[ja]=SateAIs の SAR 衛星画像解析（船舶 / オイルスリック / 新規建物 / 消失建物 / 時系列変化）を QGIS から実行できるプラグイン。
-version=0.1.1
+version=0.1.2
 author=SpaceShift Inc.
-email=support@spcsft.com
+email=osgeo@spcsft.com
 
 about=SateAIs is a SAR satellite image analysis platform (currently supporting Sentinel-1). This plugin lets GIS users invoke detection jobs from QGIS, view results as map layers, and manage jobs without leaving the QGIS environment. Requires a SateAIs API key from https://console.spcsft.com.
 about[ja]=SateAIs は SAR 衛星画像解析プラットフォーム（現在は Sentinel-1 対応）です。このプラグインを使うと、GIS 利用者は QGIS から検出ジョブを投入し、結果を地図レイヤとして表示・管理できます。利用には https://console.spcsft.com で発行する API キーが必要です。
@@ -26,6 +26,8 @@ tags=sar,sentinel-1,satellite,remote sensing,ship detection,oil slick,building d
 category=Web
 
 changelog=
+    0.1.2 (2026-07-22)
+    - Update the plugin contact email
     0.1.1 (2026-07-22)
     - Resolve plugin-repository security-scanner findings (no functional changes)
     - Qt6-ready enum syntax throughout (QGIS 4 forward compatibility)
