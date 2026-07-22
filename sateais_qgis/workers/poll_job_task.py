@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 import traceback
 from typing import Any
@@ -49,7 +50,7 @@ class PollJobsTask(QgsTask):
     auth_missing = pyqtSignal()
 
     def __init__(self, job_ids: list[str]) -> None:
-        super().__init__("SateAIs: tracking jobs", QgsTask.CanCancel)
+        super().__init__("SateAIs: tracking jobs", QgsTask.Flag.CanCancel)
         # _pending / _last_status / _errors / _first_seen are mutated from the
         # task thread (run()) and the UI thread (add_job()). Reads/writes of
         # list / dict are atomic in CPython, which is sufficient for the simple
@@ -81,7 +82,7 @@ class PollJobsTask(QgsTask):
         try:
             client = build_client()
         except AuthNotConfiguredError:
-            self._log("no API key configured; stopping poll task", Qgis.Warning)
+            self._log("no API key configured; stopping poll task", Qgis.MessageLevel.Warning)
             self.auth_missing.emit()
             return False
 
@@ -95,7 +96,7 @@ class PollJobsTask(QgsTask):
                     started = self._first_seen.setdefault(job_id, time.monotonic())
                     if time.monotonic() - started > MAX_TRACKING_SECONDS:
                         self._drop(job_id)
-                        self._log(f"gave up tracking {job_id} after 24h", Qgis.Warning)
+                        self._log(f"gave up tracking {job_id} after 24h", Qgis.MessageLevel.Warning)
                         self.job_poll_abandoned.emit(job_id, ABANDON_EXPIRED)
                         continue
 
@@ -108,7 +109,7 @@ class PollJobsTask(QgsTask):
                     except Exception as e:  # noqa: BLE001
                         self._log(
                             f"unexpected error polling {job_id}: {e}\n{traceback.format_exc()}",
-                            Qgis.Critical,
+                            Qgis.MessageLevel.Critical,
                         )
                         self._register_error(job_id)
                         continue
@@ -139,14 +140,12 @@ class PollJobsTask(QgsTask):
 
             return True
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     def finished(self, result: bool) -> None:  # pragma: no cover - UI hook
         if not result:
-            self._log("poll task ended early (no client or error)", Qgis.Warning)
+            self._log("poll task ended early (no client or error)", Qgis.MessageLevel.Warning)
 
     # --- helpers -------------------------------------------------------------
 
@@ -162,7 +161,7 @@ class PollJobsTask(QgsTask):
             self._drop(job_id)
             self._log(
                 f"gave up tracking {job_id} after {count} consecutive poll errors",
-                Qgis.Warning,
+                Qgis.MessageLevel.Warning,
             )
             self.job_poll_abandoned.emit(job_id, ABANDON_ERRORS)
 
@@ -182,11 +181,11 @@ class PollJobsTask(QgsTask):
             time.sleep(min(0.5, deadline - time.monotonic()))
 
     @staticmethod
-    def _log(message: str, level: int = Qgis.Info) -> None:
+    def _log(message: str, level: int = Qgis.MessageLevel.Info) -> None:
         QgsMessageLog.logMessage(message, LOG_TAG, level)
 
     def _log_api_error(self, label: str, exc: Any) -> None:
         status = getattr(exc, "status_code", "?")
         code = getattr(exc, "code", None) or "-"
         message = getattr(exc, "message", str(exc))
-        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.Warning)
+        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.MessageLevel.Warning)

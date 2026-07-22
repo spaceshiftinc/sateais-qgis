@@ -60,10 +60,10 @@ class JobCard(QFrame):
     def __init__(self, job: TrackedJob, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("JobCard")
-        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self._job = job
         if job.polygon:
-            self.setCursor(QCursor(Qt.PointingHandCursor))
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._build_ui()
         self.set_status(job.status, job.error_code, job.error_message)
 
@@ -249,7 +249,7 @@ class JobCard(QFrame):
     def mouseReleaseEvent(self, event):  # type: ignore[override]
         # Buttons capture their own clicks; this fires only when the card body
         # was clicked. Emit a preview request when we have geometry to show.
-        if event.button() == Qt.LeftButton and self._job.polygon:
+        if event.button() == Qt.MouseButton.LeftButton and self._job.polygon:
             self.aoi_preview_requested.emit(self._job.job_id, self._job.polygon)
         super().mouseReleaseEvent(event)
 

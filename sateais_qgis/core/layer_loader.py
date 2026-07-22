@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -126,11 +127,9 @@ def add_to_project(layer: QgsVectorLayer, iface) -> None:
     canvas_crs = canvas.mapSettings().destinationCrs()
     if layer_crs.isValid() and layer_crs != canvas_crs:
         transform = QgsCoordinateTransform(layer_crs, canvas_crs, QgsProject.instance())
-        try:
+        # Fall back to the untransformed extent rather than skipping zoom.
+        with contextlib.suppress(Exception):
             extent = transform.transformBoundingBox(extent)
-        except Exception:  # noqa: BLE001
-            # Fall back to the untransformed extent rather than skipping zoom.
-            pass
 
     canvas.setExtent(_padded(extent, ZOOM_PADDING_RATIO))
     canvas.refresh()
@@ -172,7 +171,7 @@ def apply_style(layer: QgsVectorLayer, analysis_type: str) -> None:
     else:
         symbol = QgsFillSymbol.createSimple(
             {
-                "color": fill_color.name(QColor.HexArgb),
+                "color": fill_color.name(QColor.NameFormat.HexArgb),
                 "color_named": fill_color.name(),
                 "outline_color": base_color.name(),
                 "outline_width": "0.6",

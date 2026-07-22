@@ -16,6 +16,7 @@ intact across the thread boundary.
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 from typing import Any
 
@@ -57,7 +58,7 @@ class ResultLoaderWorker(QThread):
         except Exception as e:  # noqa: BLE001
             self._log(
                 f"worker crashed before emitting: {e}\n{traceback.format_exc()}",
-                Qgis.Critical,
+                Qgis.MessageLevel.Critical,
             )
             self.finished_signal.emit(False, None, ERROR_SERVER_ERROR)
 
@@ -76,18 +77,18 @@ class ResultLoaderWorker(QThread):
         )
         from ..core.client_factory import AuthNotConfiguredError, build_client
 
-        self._log(f"fetching result job_id={self._job_id}", Qgis.Info)
+        self._log(f"fetching result job_id={self._job_id}", Qgis.MessageLevel.Info)
 
         try:
             client = build_client()
         except AuthNotConfiguredError:
-            self._log("no API key configured", Qgis.Warning)
+            self._log("no API key configured", Qgis.MessageLevel.Warning)
             self.finished_signal.emit(False, None, ERROR_AUTH_NOT_CONFIGURED)
             return
 
         try:
             geojson = client.jobs.result(self._job_id)
-            self._log(f"fetched result job_id={self._job_id}", Qgis.Success)
+            self._log(f"fetched result job_id={self._job_id}", Qgis.MessageLevel.Success)
             self.finished_signal.emit(True, geojson, "")
         except AuthenticationError as e:
             self._log_api_error("authentication failed", e)
@@ -114,20 +115,20 @@ class ResultLoaderWorker(QThread):
             self._log_api_error("API error", e)
             self.finished_signal.emit(False, None, ERROR_SERVER_ERROR)
         except Exception as e:  # noqa: BLE001
-            self._log(f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.Critical)
+            self._log(
+                f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.MessageLevel.Critical
+            )
             self.finished_signal.emit(False, None, ERROR_NETWORK_ERROR)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     @staticmethod
-    def _log(message: str, level: int = Qgis.Info) -> None:
+    def _log(message: str, level: int = Qgis.MessageLevel.Info) -> None:
         QgsMessageLog.logMessage(message, LOG_TAG, level)
 
     def _log_api_error(self, label: str, exc: Any) -> None:
         status = getattr(exc, "status_code", "?")
         code = getattr(exc, "code", None) or "-"
         message = getattr(exc, "message", str(exc))
-        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.Warning)
+        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.MessageLevel.Warning)

@@ -71,7 +71,7 @@ class AuthDialog(QDialog):
         key_row = QHBoxLayout()
         key_row.setSpacing(6)
         self.api_key_edit = QLineEdit()
-        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_edit.setPlaceholderText("sk_live_...")
         self.api_key_edit.textChanged.connect(self._on_input_changed)
         key_row.addWidget(self.api_key_edit, 1)
@@ -83,14 +83,14 @@ class AuthDialog(QDialog):
 
         get_key = QPushButton(self.tr("Get an API key at console.spcsft.com →"))
         get_key.setObjectName("GhostButton")
-        get_key.setCursor(Qt.PointingHandCursor)
+        get_key.setCursor(Qt.CursorShape.PointingHandCursor)
         get_key.setFlat(True)
         get_key.clicked.connect(self._on_open_console)
         outer.addWidget(get_key)
 
         divider = QFrame()
         divider.setObjectName("Divider")
-        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShape(QFrame.Shape.HLine)
         outer.addWidget(divider)
 
         test_row = QHBoxLayout()
@@ -139,7 +139,9 @@ class AuthDialog(QDialog):
         self.test_status.style().polish(self.test_status)
 
     def _on_show_key_toggled(self, checked: bool) -> None:
-        self.api_key_edit.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        self.api_key_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+        )
 
     def _on_open_console(self) -> None:
         QDesktopServices.openUrl(QUrl(CONSOLE_URL))

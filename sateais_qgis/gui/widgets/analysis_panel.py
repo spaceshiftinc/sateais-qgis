@@ -168,7 +168,7 @@ class AnalysisPanel(QWidget):
 
         get_key = QPushButton(self.tr("Get an API key at console.spcsft.com →"))
         get_key.setObjectName("GhostButton")
-        get_key.setCursor(Qt.PointingHandCursor)
+        get_key.setCursor(Qt.CursorShape.PointingHandCursor)
         get_key.setFlat(True)
         get_key.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(CONSOLE_URL)))
         layout.addWidget(get_key)
@@ -342,7 +342,7 @@ class AnalysisPanel(QWidget):
             self.iface.messageBar().pushMessage(
                 "SateAIs",
                 self.tr(f"Job submitted — ID {job_id} copied to clipboard."),
-                level=Qgis.Success,
+                level=Qgis.MessageLevel.Success,
                 duration=6,
             )
             self._current_form().clear()

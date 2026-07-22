@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
 import urllib.error
@@ -25,7 +26,7 @@ from .types import Job, JobStatus
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
-USER_AGENT = "sateais-qgis-plugin/0.1.0"
+USER_AGENT = "sateais-qgis-plugin/0.1.1"
 
 
 class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -54,9 +55,10 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _AUTH_STRIPPING_OPENER = urllib.request.build_opener(_AuthStrippingRedirectHandler())
-# Route every urllib.request.urlopen() call through our handler so the redirect
-# fix also applies to tests that mock urlopen and to any callers outside this
-# client. This matches the safer behaviour of the requests library.
+# The client opens requests through this opener directly (the base URL scheme
+# is validated to http/https in __init__). It is also installed globally so the
+# redirect fix covers any urlopen() callers outside this client, matching the
+# safer behaviour of the requests library.
 urllib.request.install_opener(_AUTH_STRIPPING_OPENER)
 
 _STATUS_TO_ERROR: dict[int, type[APIError]] = {
@@ -177,7 +179,7 @@ class UrllibApiClient:
         req = urllib.request.Request(url=url, data=body, headers=headers, method=method)
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+            with _AUTH_STRIPPING_OPENER.open(req, timeout=self.timeout) as response:
                 raw = response.read()
         except urllib.error.HTTPError as e:
             _raise_api_error(e)
@@ -203,10 +205,9 @@ class UrllibApiClient:
 def _raise_api_error(http_error: urllib.error.HTTPError) -> NoReturn:
     status = http_error.code
     raw_body = b""
-    try:
+    # Best-effort: the body is a bonus for diagnostics, never a requirement.
+    with contextlib.suppress(Exception):
         raw_body = http_error.read() or b""
-    except Exception:  # noqa: BLE001
-        pass
 
     code: str | None = None
     message: str = http_error.reason or f"HTTP {status}"

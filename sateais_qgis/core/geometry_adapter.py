@@ -73,7 +73,7 @@ def polygon_area_km2(geometry: QgsGeometry, source_crs: QgsCoordinateReferenceSy
     distance_area.setEllipsoid("WGS84")
 
     area_m2 = distance_area.measureArea(geometry)
-    area_m2 = distance_area.convertAreaMeasurement(area_m2, QgsUnitTypes.AreaSquareMeters)
+    area_m2 = distance_area.convertAreaMeasurement(area_m2, QgsUnitTypes.AreaUnit.AreaSquareMeters)
     return area_m2 / 1_000_000.0
 
 

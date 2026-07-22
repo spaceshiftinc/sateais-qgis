@@ -4,7 +4,7 @@ qgisMinimumVersion=3.34
 qgisMaximumVersion=3.99
 description=Run SateAIs SAR satellite detection (ship, oil slick, new building, disappear building, time series) directly from QGIS.
 description[ja]=SateAIs の SAR 衛星画像解析（船舶 / オイルスリック / 新規建物 / 消失建物 / 時系列変化）を QGIS から実行できるプラグイン。
-version=0.1.0
+version=0.1.1
 author=SpaceShift Inc.
 email=support@spcsft.com
 
@@ -26,6 +26,9 @@ tags=sar,sentinel-1,satellite,remote sensing,ship detection,oil slick,building d
 category=Web
 
 changelog=
+    0.1.1 (2026-07-22)
+    - Resolve plugin-repository security-scanner findings (no functional changes)
+    - Qt6-ready enum syntax throughout (QGIS 4 forward compatibility)
     0.1.0 (2026-07-16) — First public release
     - Run 5 SAR detections from QGIS: ship, oil slick, new/disappeared building, time series
     - Draw an AOI on the canvas or paste WKT; results load as styled map layers
