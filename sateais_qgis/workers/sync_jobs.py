@@ -12,6 +12,7 @@ Emits ``finished_signal(ok, jobs_or_none, error_code)``:
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 from typing import Any
 
@@ -39,13 +40,13 @@ class SyncJobsWorker(QThread):
         try:
             client = build_client()
         except AuthNotConfiguredError:
-            self._log("no API key configured", Qgis.Warning)
+            self._log("no API key configured", Qgis.MessageLevel.Warning)
             self.finished_signal.emit(False, None, ERROR_AUTH_NOT_CONFIGURED)
             return
 
         try:
             jobs = client.jobs.list()
-            self._log(f"synced {len(jobs)} jobs from server", Qgis.Success)
+            self._log(f"synced {len(jobs)} jobs from server", Qgis.MessageLevel.Success)
             self.finished_signal.emit(True, jobs, "")
         except AuthenticationError as e:
             self._log_api_error("authentication failed", e)
@@ -54,20 +55,20 @@ class SyncJobsWorker(QThread):
             self._log_api_error("job list failed", e)
             self.finished_signal.emit(False, None, ERROR_SERVER_ERROR)
         except Exception as e:  # noqa: BLE001
-            self._log(f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.Critical)
+            self._log(
+                f"unexpected error: {e}\n{traceback.format_exc()}", Qgis.MessageLevel.Critical
+            )
             self.finished_signal.emit(False, None, ERROR_NETWORK_ERROR)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 client.close()
-            except Exception:  # noqa: BLE001
-                pass
 
     @staticmethod
-    def _log(message: str, level: int = Qgis.Info) -> None:
+    def _log(message: str, level: int = Qgis.MessageLevel.Info) -> None:
         QgsMessageLog.logMessage(message, LOG_TAG, level)
 
     def _log_api_error(self, label: str, exc: Any) -> None:
         status = getattr(exc, "status_code", "?")
         code = getattr(exc, "code", None) or "-"
         message = getattr(exc, "message", str(exc))
-        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.Warning)
+        self._log(f"{label} [HTTP {status} / {code}]: {message}", Qgis.MessageLevel.Warning)

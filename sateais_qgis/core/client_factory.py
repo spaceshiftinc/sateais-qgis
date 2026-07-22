@@ -8,6 +8,7 @@ API key resolution order:
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -42,18 +43,16 @@ def _warn_if_credentials_file_world_readable() -> None:
         return
     if mode & 0o077 == 0:
         return
-    try:
+    # QGIS may be unavailable (e.g. tests, CLI inspection) — skip the warning.
+    with contextlib.suppress(Exception):
         from qgis.core import Qgis, QgsMessageLog
 
         QgsMessageLog.logMessage(
             f"Credentials file {CREDENTIALS_FILE} is group/other readable "
             f"(mode={mode:o}); recommend `chmod 600` to protect your API key.",
             "SateAIs",
-            Qgis.Warning,
+            Qgis.MessageLevel.Warning,
         )
-    except Exception:  # noqa: BLE001
-        # QGIS not available (e.g. tests, CLI inspection) — silently skip.
-        pass
 
 
 def _read_credentials_file() -> str | None:
@@ -157,7 +156,5 @@ def test_connection(api_key: str | None = None) -> tuple[bool, str]:
     except Exception:  # noqa: BLE001
         return False, "No network connection. Please check your internet connection."
     finally:
-        try:
+        with contextlib.suppress(Exception):
             client.close()
-        except Exception:  # noqa: BLE001
-            pass

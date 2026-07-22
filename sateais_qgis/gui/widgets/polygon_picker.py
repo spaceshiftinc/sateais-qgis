@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsGeometry,
@@ -33,17 +35,17 @@ class PolygonPicker(QgsMapTool):
     def __init__(self, canvas: QgsMapCanvas) -> None:
         super().__init__(canvas)
         self.canvas = canvas
-        self.setCursor(QCursor(Qt.CrossCursor))
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
         self._anchor: QgsPointXY | None = None
 
-        self._rubber_band = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
+        self._rubber_band = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self._rubber_band.setStrokeColor(RUBBER_BAND_COLOR)
         self._rubber_band.setWidth(RUBBER_BAND_WIDTH)
         self._rubber_band.setFillColor(QColor(0, 212, 255, 90))
 
     def canvasPressEvent(self, event: QMouseEvent) -> None:
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.MouseButton.LeftButton:
             return
         self._anchor = self.toMapCoordinates(event.pos())
         self._draw_rectangle(self._anchor)
@@ -54,7 +56,7 @@ class PolygonPicker(QgsMapTool):
         self._draw_rectangle(self.toMapCoordinates(event.pos()))
 
     def canvasReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() != Qt.LeftButton or self._anchor is None:
+        if event.button() != Qt.MouseButton.LeftButton or self._anchor is None:
             return
         end = self.toMapCoordinates(event.pos())
         if end.x() == self._anchor.x() or end.y() == self._anchor.y():
@@ -64,7 +66,7 @@ class PolygonPicker(QgsMapTool):
         self._finish(self._anchor, end)
 
     def keyPressEvent(self, event):  # type: ignore[override]
-        if event.key() == Qt.Key_Escape:
+        if event.key() == Qt.Key.Key_Escape:
             self._cancel()
 
     def deactivate(self) -> None:
@@ -86,10 +88,8 @@ class PolygonPicker(QgsMapTool):
         # user sizes the box. Best-effort: skip if the geometry can't be measured
         # yet (degenerate box at press time).
         source_crs = self.canvas.mapSettings().destinationCrs()
-        try:
+        with contextlib.suppress(Exception):
             self.area_changed.emit(polygon_area_km2(geometry, source_crs))
-        except Exception:  # noqa: BLE001
-            pass
 
     def _finish(self, anchor: QgsPointXY, end: QgsPointXY) -> None:
         ring = _rectangle_corners(anchor, end)
@@ -118,15 +118,13 @@ class PolygonPicker(QgsMapTool):
 
     def _reset(self) -> None:
         self._anchor = None
-        self._rubber_band.reset(QgsWkbTypes.PolygonGeometry)
+        self._rubber_band.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
 
     def __del__(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             scene = self.canvas.scene()
             if scene is not None and self._rubber_band is not None:
                 scene.removeItem(self._rubber_band)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def _rectangle_corners(a: QgsPointXY, b: QgsPointXY) -> list[QgsPointXY]:

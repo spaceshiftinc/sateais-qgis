@@ -45,3 +45,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash scripts/package.sh
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install bandit detect-secrets
+      # Mirror the plugins.qgis.org blocking tier (its ZIP scan excludes tests/).
+      - run: bandit -r sateais_qgis -x sateais_qgis/tests -q
+      - run: |
+          detect-secrets scan sateais_qgis --exclude-files 'tests/' > ds.json
+          python -c "import json,sys; sys.exit(1 if json.load(open('ds.json'))['results'] else 0)"

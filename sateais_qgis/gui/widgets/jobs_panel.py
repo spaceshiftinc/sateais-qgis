@@ -153,7 +153,7 @@ class JobsPanel(QWidget):
         scroll = QScrollArea()
         scroll.setObjectName("JobsScroll")
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._list_container = QWidget()
         self._list_layout = QVBoxLayout(self._list_container)
@@ -248,7 +248,7 @@ class JobsPanel(QWidget):
             self.iface.messageBar().pushMessage(
                 "SateAIs",
                 self.tr("All jobs are in a terminal state — nothing to refresh."),
-                level=Qgis.Info,
+                level=Qgis.MessageLevel.Info,
                 duration=4,
             )
             return
@@ -287,7 +287,7 @@ class JobsPanel(QWidget):
                 error_code, _RESULT_ERROR_MESSAGES[ERROR_SERVER_ERROR]
             )
             self.iface.messageBar().pushMessage(
-                "SateAIs", self.tr(message), level=Qgis.Warning, duration=6
+                "SateAIs", self.tr(message), level=Qgis.MessageLevel.Warning, duration=6
             )
             return
 
@@ -328,7 +328,9 @@ class JobsPanel(QWidget):
         summary = self.tr(f"Sync complete — {imported} imported, {updated} updated.")
         if skipped:
             summary += self.tr(f" {skipped} unsupported job(s) skipped.")
-        self.iface.messageBar().pushMessage("SateAIs", summary, level=Qgis.Success, duration=5)
+        self.iface.messageBar().pushMessage(
+            "SateAIs", summary, level=Qgis.MessageLevel.Success, duration=5
+        )
 
     def _on_task_finished(self, task: PollJobsTask) -> None:
         if task is self._poll_task:
@@ -368,7 +370,7 @@ class JobsPanel(QWidget):
                 "Job statuses cannot be updated — no API key is configured. "
                 "Open Plugins → SateAIs API for QGIS → Settings… to set one."
             ),
-            level=Qgis.Warning,
+            level=Qgis.MessageLevel.Warning,
             duration=8,
         )
 
@@ -396,7 +398,7 @@ class JobsPanel(QWidget):
         self.iface.messageBar().pushMessage(
             "SateAIs",
             message,
-            level=Qgis.Warning,
+            level=Qgis.MessageLevel.Warning,
             duration=8,
         )
 
@@ -420,7 +422,7 @@ class JobsPanel(QWidget):
         self.iface.messageBar().pushMessage(
             "SateAIs",
             self.tr(f"Job ID copied to clipboard: {job_id}"),
-            level=Qgis.Info,
+            level=Qgis.MessageLevel.Info,
             duration=3,
         )
 
@@ -456,7 +458,7 @@ class JobsPanel(QWidget):
         QgsMessageLog.logMessage(
             f"load result requested job_id={job_id!r} (len={len(job_id)})",
             LOG_TAG,
-            Qgis.Info,
+            Qgis.MessageLevel.Info,
         )
 
         # The card shows an in-place orbiting-satellite indicator while the
@@ -496,7 +498,7 @@ class JobsPanel(QWidget):
             self.iface.messageBar().pushMessage(
                 "SateAIs",
                 self.tr(message),
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
                 duration=6,
             )
             return
@@ -517,12 +519,12 @@ class JobsPanel(QWidget):
             QgsMessageLog.logMessage(
                 f"failed to add layer for {job_id}: {e}\n{traceback.format_exc()}",
                 LOG_TAG,
-                Qgis.Critical,
+                Qgis.MessageLevel.Critical,
             )
             self.iface.messageBar().pushMessage(
                 "SateAIs",
                 self.tr("Could not add the result as a layer."),
-                level=Qgis.Warning,
+                level=Qgis.MessageLevel.Warning,
                 duration=6,
             )
             return
@@ -542,7 +544,7 @@ class JobsPanel(QWidget):
             except Exception as e:  # noqa: BLE001
                 # The AOI frame is auxiliary; never fail the result load over it.
                 QgsMessageLog.logMessage(
-                    f"could not add AOI layer for {job_id}: {e}", LOG_TAG, Qgis.Warning
+                    f"could not add AOI layer for {job_id}: {e}", LOG_TAG, Qgis.MessageLevel.Warning
                 )
         self.result_loaded.emit(job_id)
 
@@ -560,7 +562,7 @@ class JobsPanel(QWidget):
         self.iface.messageBar().pushMessage(
             "SateAIs",
             self.tr(message),
-            level=Qgis.Success,
+            level=Qgis.MessageLevel.Success,
             duration=5,
         )
 

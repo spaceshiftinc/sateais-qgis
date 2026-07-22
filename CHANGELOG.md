@@ -3,6 +3,16 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-22
+
+### Changed
+- Resolve the plugin repository's automated security-scanner findings: intentional
+  best-effort cleanups now use `contextlib.suppress`, HTTP requests go through the
+  auth-stripping opener directly, and the decorative starfield no longer uses the
+  `random` module. No behavioural changes.
+- Qt6-ready scoped-enum syntax (and `exec()`) across the UI — forward-compatible
+  with QGIS 4, identical behaviour on QGIS 3.34+.
+
 ## [0.1.0] - 2026-07-16
 
 First public release.
