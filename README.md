@@ -19,8 +19,9 @@ Currently supports Sentinel-1. Requires QGIS 3.34+ (Python 3.9+) and a SateAIs A
 
 ## Install
 
-**From the QGIS Plugin Repository** (recommended, once published):
+**From the QGIS Plugin Repository** (recommended):
 *Plugins → Manage and Install Plugins → search "SateAIs"* → Install.
+Plugin page: [plugins.qgis.org/plugins/sateais_qgis](https://plugins.qgis.org/plugins/sateais_qgis/)
 
 **From a ZIP** (release builds):
 Download `sateais_qgis-<version>.zip` from

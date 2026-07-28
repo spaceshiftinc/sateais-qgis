@@ -3,6 +3,13 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-07-28
+
+### Changed
+- Support QGIS 4.x: raised `qgisMaximumVersion` to 4.99 so the plugin appears in
+  the QGIS 4 Plugin Manager. The code itself has been Qt6-ready since 0.1.1
+  (scoped enums, `exec()`), so no code changes were needed.
+
 ## [0.1.2] - 2026-07-22
 
 ### Changed
