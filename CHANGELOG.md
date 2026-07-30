@@ -36,6 +36,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
   hover) away.
 
 ### Fixed
+- The background job poll is now cancelled when the panel is torn down (plugin
+  unload / QGIS close). It used to keep running into QGIS's own shutdown, where a
+  task thread finishing after the auth manager has been destroyed can trip a
+  use-after-free inside QGIS itself. That defect is upstream — this only stops the
+  plugin from keeping the thread pool alive long enough to hit it.
 - Jobs imported by **Sync** now support AOI preview and the AOI outline layer. Their
   area was never stored, so clicking a console/CLI/MCP-submitted job did nothing.
 - A job submitted while the analysis-type selector was then changed was recorded under

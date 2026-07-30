@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import traceback
 
 from qgis.core import Qgis, QgsApplication, QgsMessageLog
@@ -75,7 +76,7 @@ class JobsPanel(QWidget):
     # --- lifecycle -----------------------------------------------------------
 
     def teardown(self) -> None:
-        """Stop in-flight result-loader threads before this panel is destroyed.
+        """Stop in-flight background work before this panel is destroyed.
 
         A QThread whose C++ object is deleted while the OS thread is still
         running makes Qt abort() the whole process. On plugin unload / QGIS
@@ -85,6 +86,32 @@ class JobsPanel(QWidget):
         ``detach_worker``) so the panel can be destroyed while the thread winds
         down on its own.
         """
+        # The poll task goes first, so a running poll cannot start further work
+        # while the rest of this teardown runs.
+        #
+        # It also matters on QGIS exit: QGIS destroys the auth manager before it
+        # waits for the task pool, so a pooled task thread that finishes during
+        # shutdown can trip a use-after-free inside QGIS itself (observed on
+        # 3.40.5: QgsAuthConfigurationStorageDb's per-thread cleanup slot firing
+        # after the storage is gone). Cancelling here does not fix that bug — it
+        # stops this plugin from keeping the pool alive long enough to hit it.
+        # No wait(): the task belongs to QgsTaskManager, so we request the cancel
+        # and let go. It polls isCanceled() every 0.5s, so it returns promptly.
+        poll_task = self._poll_task
+        self._poll_task = None
+        if poll_task is not None:
+            for signal in (
+                poll_task.status_changed,
+                poll_task.job_completed,
+                poll_task.job_failed,
+                poll_task.job_poll_abandoned,
+                poll_task.auth_missing,
+            ):
+                with contextlib.suppress(TypeError, RuntimeError):
+                    signal.disconnect()
+            with contextlib.suppress(RuntimeError):
+                poll_task.cancel()
+
         for worker in list(self._loaders.values()):
             try:
                 worker.finished_signal.disconnect()
