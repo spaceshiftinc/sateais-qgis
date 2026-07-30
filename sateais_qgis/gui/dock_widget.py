@@ -155,8 +155,8 @@ class SateAIsDockWidget(QDockWidget):
 
     # --- job hand-off --------------------------------------------------------
 
-    def _on_job_submitted(self, job_id: str, analysis_type: str, polygon: str) -> None:
-        self.jobs_panel.add_job(job_id, analysis_type, polygon)
+    def _on_job_submitted(self, job_id: str, analysis_type: str, request) -> None:
+        self.jobs_panel.add_job(job_id, analysis_type, request)
         self.tabs.setCurrentWidget(self.jobs_panel)
         # If the just-submitted job owns the currently-shown "pending" AOI,
         # promote it to belong to this job_id so clicking the job card later

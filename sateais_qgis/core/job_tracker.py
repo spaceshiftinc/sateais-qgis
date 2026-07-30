@@ -14,6 +14,14 @@ DEFAULT_RETENTION_DAYS = 30
 
 VALID_STATUSES = {"pending", "processing", "completed", "failed", "unknown"}
 
+# Request parameters this plugin stores and shows. Everything else the API
+# reports is deliberately dropped: ``satellite_id`` is a constant, ``lat``/``lon``
+# mean different things depending on how the job was submitted, and
+# ``polygon_id`` / ``year`` / ``tif_id`` cannot be submitted from QGIS at all.
+# Keeping an allowlist also stops unknown server keys accumulating in the single
+# JSON blob QSettings holds.
+_REQUEST_KEYS = ("scene_id", "date", "date_start", "date_end")
+
 
 @dataclass
 class TrackedJob:
@@ -29,6 +37,21 @@ class TrackedJob:
     # None until then; persisted so the badge survives restarts.
     detection_count: int | None = None
 
+    # --- request context ----------------------------------------------------
+    # What was actually asked for, so a card is identifiable without loading the
+    # result. Filled from the submit form when the job is created here, or from
+    # the jobs-list API's ``request_params`` on Sync (for jobs submitted from the
+    # console / CLI / MCP, and for jobs tracked before this existed). Stays None
+    # when neither source has run — the single-job status endpoint does not carry
+    # request parameters, so polling can never fill these in.
+    scene_id: str | None = None
+    date: str | None = None  # ship / oilslick reference date (YYYY-MM-DD)
+    date_start: str | None = None  # date-range types
+    date_end: str | None = None
+    # "" = never resolved, "local" = captured at submit, "server" = from Sync,
+    # "unavailable" = the server had nothing for it.
+    request_source: str = ""
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -40,6 +63,8 @@ class TrackedJob:
         polygon = data.get("polygon")
         if polygon is not None and not isinstance(polygon, str):
             polygon = None
+        # Missing keys fall back to defaults, so entries written by older
+        # versions load unchanged and no migration is needed.
         return cls(
             job_id=job_id,
             analysis_type=_coerce_str(data.get("analysis_type")),
@@ -49,6 +74,11 @@ class TrackedJob:
             error_message=_optional_str(data.get("error_message")),
             polygon=polygon,
             detection_count=_optional_int(data.get("detection_count")),
+            scene_id=_optional_str(data.get("scene_id")),
+            date=_optional_str(data.get("date")),
+            date_start=_optional_str(data.get("date_start")),
+            date_end=_optional_str(data.get("date_end")),
+            request_source=_coerce_str(data.get("request_source")),
         )
 
 
@@ -69,6 +99,18 @@ def _optional_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     return value if isinstance(value, int) and value >= 0 else None
+
+
+def _request_context(request: dict[str, Any] | None) -> dict[str, str]:
+    """Keep only the allowlisted, non-empty string parameters from a request."""
+    if not isinstance(request, dict):
+        return {}
+    context: dict[str, str] = {}
+    for key in _REQUEST_KEYS + ("polygon",):
+        value = _optional_str(request.get(key))
+        if value:
+            context[key] = value
+    return context
 
 
 def _read() -> list[TrackedJob]:
@@ -106,11 +148,16 @@ def add(
     polygon: str | None = None,
     submitted_at: str | None = None,
     status: str = "pending",
+    request: dict[str, Any] | None = None,
+    request_source: str = "",
 ) -> TrackedJob:
     """Insert a job at the head of the list.
 
     ``submitted_at`` / ``status`` default to "just submitted"; the server-sync
-    path passes the values reported by the jobs API instead.
+    path passes the values reported by the jobs API instead. ``request`` is the
+    submitted parameter set (or the API's ``request_params``); only the keys this
+    plugin displays are kept, so unknown server fields never accumulate in the
+    stored blob.
     """
     jobs = _read()
     # Skip if already tracked (idempotent).
@@ -118,12 +165,15 @@ def add(
         return next(j for j in jobs if j.job_id == job_id)
     if status not in VALID_STATUSES:
         status = "unknown"
+    context = _request_context(request)
     job = TrackedJob(
         job_id=job_id,
         analysis_type=analysis_type,
         submitted_at=submitted_at or _now_iso(),
         status=status,
-        polygon=polygon,
+        polygon=polygon or context.get("polygon"),
+        request_source=request_source,
+        **{key: context.get(key) for key in _REQUEST_KEYS},
     )
     jobs.insert(0, job)
     _write(jobs)
@@ -149,6 +199,37 @@ def update_status(
                 job.error_message = error_message
             _write(jobs)
             return job
+    return None
+
+
+def set_request_context(
+    job_id: str,
+    request: dict[str, Any] | None,
+    source: str,
+) -> TrackedJob | None:
+    """Merge allowlisted request parameters into an already-tracked job.
+
+    Incoming non-None values win, so a later Sync can correct what was captured
+    locally — except ``polygon``, which is only filled when missing so a Sync
+    never replaces the exact WKT the user drew with the server's echo of it.
+    Backfilling ``polygon`` here is what makes AOI preview work for jobs that
+    were submitted from the console, CLI or MCP.
+    """
+    context = _request_context(request)
+    jobs = _read()
+    for job in jobs:
+        if job.job_id != job_id:
+            continue
+        for key in _REQUEST_KEYS:
+            value = context.get(key)
+            if value is not None:
+                setattr(job, key, value)
+        if not job.polygon and context.get("polygon"):
+            job.polygon = context["polygon"]
+        if source:
+            job.request_source = source
+        _write(jobs)
+        return job
     return None
 
 
@@ -208,6 +289,7 @@ __all__ = [
     "TrackedJob",
     "add",
     "update_status",
+    "set_request_context",
     "set_detection_count",
     "remove",
     "list_all",

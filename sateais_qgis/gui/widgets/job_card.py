@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from qgis.PyQt.QtCore import QCoreApplication, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QCursor
 from qgis.PyQt.QtWidgets import (
@@ -16,6 +14,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
+from ...core import job_summary
 from ...core.job_tracker import TrackedJob
 from .loading_indicator import OrbitingSatellite
 
@@ -27,25 +26,14 @@ _STATUS_LABEL = {
     "unknown": "Unknown",
 }
 
-# Human-readable (singular, plural) nouns per analysis type, so a completed job
-# reads "23 ships" / "1 change" rather than a bare count. Shared with the
-# Jobs-panel success toast.
-_DETECTION_NOUN = {
-    "ship": ("ship", "ships"),
-    "oilslick": ("oil slick", "oil slicks"),
-    "newbuilding": ("new building", "new buildings"),
-    "disappearbuilding": ("removed building", "removed buildings"),
-    "timeseries": ("change", "changes"),
-}
-
 # How long the "just completed" glow stays on a card, in ms.
 _PULSE_MS = 650
 
-
-def format_detection_summary(analysis_type: str, count: int) -> str:
-    """Return e.g. ``"23 ships"`` / ``"1 change"`` / ``"12 detections"``."""
-    singular, plural = _DETECTION_NOUN.get(analysis_type, ("detection", "detections"))
-    return f"{count} {singular if count == 1 else plural}"
+# The first UUID segment is enough to recognise a job at a glance (the layer
+# names and the poll-abandoned notice already use it), and the full id stays one
+# Copy ID click — or one hover — away. Showing it in full wrapped the meta line
+# onto a second row at the default dock width.
+_SHORT_ID_CHARS = 8
 
 
 class JobCard(QFrame):
@@ -65,6 +53,7 @@ class JobCard(QFrame):
         if job.polygon:
             self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._build_ui()
+        self._refresh_request()
         self.set_status(job.status, job.error_code, job.error_message)
 
     def _build_ui(self) -> None:
@@ -75,8 +64,11 @@ class JobCard(QFrame):
         header = QHBoxLayout()
         header.setSpacing(8)
 
-        self.type_label = QLabel(self._job.analysis_type)
+        self.type_label = QLabel(job_summary.format_analysis_label(self._job.analysis_type))
         self.type_label.setObjectName("SectionLabel")
+        # The type can come from the server (a synced endpoint_id), so never let
+        # QLabel's rich-text auto-detection interpret it as markup.
+        self.type_label.setTextFormat(Qt.TextFormat.PlainText)
         header.addWidget(self.type_label)
 
         self.status_badge = QLabel("")
@@ -86,14 +78,24 @@ class JobCard(QFrame):
 
         outer.addLayout(header)
 
-        date_text = _format_datetime(self._job.submitted_at)
-        meta = QLabel(f"{date_text}  ·  {self._job.job_id}")
-        meta.setObjectName("HintLabel")
-        meta.setWordWrap(True)
-        outer.addWidget(meta)
+        # What was requested (period, or the scene for scene-id submissions).
+        # Hidden entirely when unknown, so a job tracked before this existed
+        # doesn't leave a blank gap in the card.
+        self.request_label = QLabel("")
+        self.request_label.setObjectName("SubtitleLabel")
+        self.request_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.request_label.setWordWrap(True)
+        outer.addWidget(self.request_label)
+
+        self.meta_label = QLabel("")
+        self.meta_label.setObjectName("HintLabel")
+        self.meta_label.setWordWrap(True)
+        outer.addWidget(self.meta_label)
 
         self.error_label = QLabel("")
         self.error_label.setObjectName("StatusError")
+        # Server-supplied text; same reasoning as the type label above.
+        self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setWordWrap(True)
         self.error_label.setVisible(False)
         outer.addWidget(self.error_label)
@@ -189,12 +191,33 @@ class JobCard(QFrame):
         self._job.detection_count = count
         self._refresh_status_badge()
 
+    def apply_request_context(self, job: TrackedJob) -> None:
+        """Adopt request details resolved after the card was built (i.e. by Sync)."""
+        for field in ("scene_id", "date", "date_start", "date_end", "request_source", "polygon"):
+            setattr(self._job, field, getattr(job, field))
+        self._refresh_request()
+        # A backfilled polygon makes the card clickable for the first time.
+        if self._job.polygon:
+            self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def _refresh_request(self) -> None:
+        """Render the request line and the full-detail tooltip."""
+        summary = job_summary.build_request_summary(self._job)
+        self.request_label.setText(summary)
+        self.request_label.setVisible(bool(summary))
+
+        self.meta_label.setText(
+            f"{job_summary.format_submitted_at(self._job.submitted_at)}"
+            f"  ·  {self._job.job_id[:_SHORT_ID_CHARS]}…"
+        )
+        self.setToolTip(job_summary.build_request_tooltip(self._job))
+
     def _refresh_status_badge(self) -> None:
         """Render the status badge, promoting a completed job to its find count."""
         status = self._job.status
         count = self._job.detection_count
         if status == "completed" and count is not None and count > 0:
-            text = "✦ " + format_detection_summary(self._job.analysis_type, count)
+            text = "✦ " + job_summary.format_detection_summary(self._job.analysis_type, count)
             obj = "StatusOk"
         elif status == "completed" and count == 0:
             text = "No detections"
@@ -267,35 +290,3 @@ class JobCard(QFrame):
 
     def tr(self, message: str) -> str:
         return QCoreApplication.translate("JobCard", message)
-
-
-def _format_datetime(iso_ts: str) -> str:
-    """Render submitted-at as 'YYYY-MM-DD HH:MM (5m ago)' in local time."""
-    if not iso_ts:
-        return ""
-    try:
-        ts = datetime.fromisoformat(iso_ts)
-    except ValueError:
-        return iso_ts
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    local = ts.astimezone()
-    absolute = local.strftime("%Y-%m-%d %H:%M")
-    relative = _format_relative(datetime.now(timezone.utc) - ts)
-    return f"{absolute} ({relative})"
-
-
-def _format_relative(delta) -> str:
-    seconds = int(delta.total_seconds())
-    if seconds < 0:
-        return "just now"
-    if seconds < 60:
-        return f"{seconds}s ago"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes}m ago"
-    hours = minutes // 60
-    if hours < 24:
-        return f"{hours}h ago"
-    days = hours // 24
-    return f"{days}d ago"

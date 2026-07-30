@@ -16,7 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ...core import job_tracker, layer_loader, result_stats
+from ...core import job_summary, job_tracker, layer_loader, result_stats
 from ...workers.lifecycle import detach_worker
 from ...workers.poll_job_task import ABANDON_EXPIRED, PollJobsTask
 from ...workers.result_loader import (
@@ -32,7 +32,7 @@ from ...workers.result_loader import (
 )
 from ...workers.sync_jobs import SyncJobsWorker
 from .empty_state import EmptyState
-from .job_card import JobCard, format_detection_summary
+from .job_card import JobCard
 
 LOG_TAG = "SateAIs"
 
@@ -134,10 +134,22 @@ class JobsPanel(QWidget):
         outer.addLayout(header)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText(self.tr("Search by job ID or type…"))
+        self.search_edit.setPlaceholderText(self.tr("Search by job ID, type, scene, or date…"))
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._apply_search_filter)
         outer.addWidget(self.search_edit)
+
+        # Shown only while some card is missing its request details. The jobs API
+        # returns those on the list endpoint only, so Sync is the one way to fill
+        # them in — this makes that discoverable instead of hoping the user tries
+        # the button. Disappears by itself once every card is resolved.
+        self.sync_hint_label = QLabel(
+            self.tr("Older jobs are missing their request details — press Sync to fetch them.")
+        )
+        self.sync_hint_label.setObjectName("HintLabel")
+        self.sync_hint_label.setWordWrap(True)
+        self.sync_hint_label.setVisible(False)
+        outer.addWidget(self.sync_hint_label)
 
         # Cosmic empty state (starfield + CTA) shown when there are no jobs.
         self.empty_state = EmptyState()
@@ -165,12 +177,17 @@ class JobsPanel(QWidget):
 
     # --- public API ----------------------------------------------------------
 
-    def add_job(self, job_id: str, analysis_type: str, polygon: str = "") -> None:
-        """Called when AnalysisPanel reports a successful submit."""
-        job = job_tracker.add(analysis_type, job_id, polygon=polygon or None)
+    def add_job(self, job_id: str, analysis_type: str, request: dict | None = None) -> None:
+        """Called when AnalysisPanel reports a successful submit.
+
+        ``request`` is the parameter set that was submitted, so the new card can
+        say what it asked for without waiting for a Sync.
+        """
+        job = job_tracker.add(analysis_type, job_id, request=request, request_source="local")
         self._insert_card(job)
         self._ensure_polling([job_id])
         self._refresh_empty_state()
+        self._refresh_sync_hint()
 
     # --- internal ------------------------------------------------------------
 
@@ -185,6 +202,12 @@ class JobsPanel(QWidget):
         if pending:
             self._ensure_polling(pending)
         self._refresh_empty_state()
+        self._refresh_sync_hint()
+
+    def _refresh_sync_hint(self) -> None:
+        """Offer Sync only while at least one card has unresolved request details."""
+        unresolved = any(not card.job.request_source for card in self._cards.values())
+        self.sync_hint_label.setVisible(unresolved)
 
     def _insert_card(self, job, prepend: bool = True) -> None:
         if job.job_id in self._cards:
@@ -208,8 +231,8 @@ class JobsPanel(QWidget):
     def _apply_search_filter(self, text: str) -> None:
         query = text.strip().lower()
         any_visible = False
-        for job_id, card in self._cards.items():
-            haystack = f"{job_id} {card.job.analysis_type}".lower()
+        for card in self._cards.values():
+            haystack = job_summary.build_search_text(card.job)
             match = (not query) or (query in haystack)
             card.setVisible(match)
             if match:
@@ -301,13 +324,24 @@ class JobsPanel(QWidget):
                 skipped += 1
                 continue
             status = job.status.value
+            # The list endpoint echoes back what the job was submitted with —
+            # the only way to learn that for jobs submitted from the console, the
+            # CLI or MCP (the single-job status endpoint omits it). Backfilling
+            # the AOI here is also what makes those jobs previewable on the map.
+            source = "server" if job.request_params else "unavailable"
             if job_id := job.job_id:
                 if job_id in self._cards:
                     tracked = job_tracker.update_status(
                         job_id, status, job.error_code, job.error_message
                     )
                     if tracked is not None:
-                        self._cards[job_id].set_status(status, job.error_code, job.error_message)
+                        card = self._cards[job_id]
+                        card.set_status(status, job.error_code, job.error_message)
+                        resolved = job_tracker.set_request_context(
+                            job_id, job.request_params, source
+                        )
+                        if resolved is not None:
+                            card.apply_request_context(resolved)
                         updated += 1
                 else:
                     tracked = job_tracker.add(
@@ -315,6 +349,8 @@ class JobsPanel(QWidget):
                         job_id,
                         submitted_at=job.created_at,
                         status=status,
+                        request=job.request_params,
+                        request_source=source,
                     )
                     job_tracker.update_status(job_id, status, job.error_code, job.error_message)
                     self._insert_card(tracked)
@@ -324,6 +360,7 @@ class JobsPanel(QWidget):
         if active:
             self._ensure_polling(active)
         self._refresh_empty_state()
+        self._refresh_sync_hint()
 
         summary = self.tr(f"Sync complete — {imported} imported, {updated} updated.")
         if skipped:
@@ -434,6 +471,7 @@ class JobsPanel(QWidget):
             card.deleteLater()
         self.job_removed.emit(job_id)
         self._refresh_empty_state()
+        self._refresh_sync_hint()
         self._apply_search_filter(self.search_edit.text())
 
     def _on_load_requested(self, job_id: str) -> None:
@@ -555,7 +593,8 @@ class JobsPanel(QWidget):
 
         if count > 0:
             message = (
-                f"{format_detection_summary(job.analysis_type, count)} detected — added to map"
+                f"{job_summary.format_detection_summary(job.analysis_type, count)}"
+                " detected — added to map"
             )
         else:
             message = "No detections found in this result."
