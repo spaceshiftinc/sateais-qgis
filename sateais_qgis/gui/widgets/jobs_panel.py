@@ -16,7 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ...core import job_tracker, layer_loader
+from ...core import job_tracker, layer_loader, result_stats
 from ...workers.lifecycle import detach_worker
 from ...workers.poll_job_task import ABANDON_EXPIRED, PollJobsTask
 from ...workers.result_loader import (
@@ -508,7 +508,7 @@ class JobsPanel(QWidget):
             return
 
         job = card.job
-        count = _feature_count(geojson)
+        count = result_stats.count_detections(geojson, job.analysis_type)
         try:
             layer_name = layer_loader.build_layer_name(
                 job.analysis_type, job.job_id, job.submitted_at, count
@@ -568,12 +568,3 @@ class JobsPanel(QWidget):
 
     def tr(self, message: str) -> str:
         return QCoreApplication.translate("JobsPanel", message)
-
-
-def _feature_count(geojson: object) -> int:
-    """Count features in a GeoJSON FeatureCollection, defensively."""
-    if isinstance(geojson, dict):
-        features = geojson.get("features")
-        if isinstance(features, list):
-            return len(features)
-    return 0
