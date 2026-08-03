@@ -77,6 +77,25 @@ def format_scene_id(scene_id: str) -> str:
     return _shorten(scene_id, _SCENE_ID_MAX)
 
 
+def parse_iso8601(value: str) -> datetime | None:
+    """Parse an ISO 8601 timestamp, or return None when it cannot be read.
+
+    ``datetime.fromisoformat`` only learned to accept a ``Z`` suffix in Python
+    3.11, and QGIS LTR 3.34 / 3.40 both ship Python 3.9 — while the jobs list
+    endpoint returns exactly that form (``2026-07-03T03:39:21.506327Z``). Without
+    this substitution every synced job's timestamp fails to parse.
+
+    Naive timestamps are treated as UTC, which is what the API emits.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def format_submitted_at(iso_ts: str, now: datetime | None = None) -> str:
     """Render a timestamp as ``2026-07-30 14:12 (18h ago)`` in local time.
 
@@ -84,12 +103,9 @@ def format_submitted_at(iso_ts: str, now: datetime | None = None) -> str:
     """
     if not iso_ts:
         return ""
-    try:
-        ts = datetime.fromisoformat(iso_ts)
-    except ValueError:
+    ts = parse_iso8601(iso_ts)
+    if ts is None:
         return iso_ts
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
     reference = now or datetime.now(timezone.utc)
     absolute = ts.astimezone().strftime("%Y-%m-%d %H:%M")
     return f"{absolute} ({format_relative(reference - ts)})"
@@ -180,6 +196,7 @@ __all__ = [
     "ANALYSIS_LABELS",
     "DETECTION_NOUNS",
     "MISSING_REQUEST_HINT",
+    "parse_iso8601",
     "format_analysis_label",
     "format_detection_summary",
     "format_scene_id",

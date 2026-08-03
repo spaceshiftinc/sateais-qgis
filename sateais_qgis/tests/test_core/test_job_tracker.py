@@ -185,6 +185,21 @@ class TestSetRequestContext:
         assert job.date_start is None
         assert job.date_end is None
 
+    def test_unavailable_never_demotes_a_locally_captured_request(self, fake_store):
+        # A Sync that returns no request_params for a job we submitted ourselves
+        # must not erase the fact that we captured it at submit time.
+        job_tracker.add("ship", "s-8", request={"scene_id": "S1A_X"}, request_source="local")
+        job_tracker.set_request_context("s-8", None, "unavailable")
+
+        job = job_tracker.list_all()[0]
+        assert job.request_source == "local"
+        assert job.scene_id == "S1A_X"
+
+    def test_unavailable_still_marks_a_job_that_never_had_a_request(self, fake_store):
+        job_tracker.add("ship", "s-9")
+        job_tracker.set_request_context("s-9", None, "unavailable")
+        assert job_tracker.list_all()[0].request_source == "unavailable"
+
     def test_empty_source_leaves_the_marker_alone(self, fake_store):
         job_tracker.add("ship", "s-6", request={"scene_id": "S1A_X"}, request_source="local")
         job_tracker.set_request_context("s-6", {"date": "2026-01-01"}, "")

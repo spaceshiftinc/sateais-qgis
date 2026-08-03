@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from . import job_summary
 from .settings import _settings
 
 _KEY_JOBS = "jobs_v1"
@@ -226,7 +227,10 @@ def set_request_context(
                 setattr(job, key, value)
         if not job.polygon and context.get("polygon"):
             job.polygon = context["polygon"]
-        if source:
+        # "unavailable" is a floor, not a correction: a job whose request was
+        # captured locally at submit time must not be demoted just because the
+        # server had nothing to add for it.
+        if source and not (source == "unavailable" and job.request_source):
             job.request_source = source
         _write(jobs)
         return job
@@ -269,13 +273,13 @@ def cleanup_expired(retention_days: int = DEFAULT_RETENTION_DAYS) -> int:
     kept: list[TrackedJob] = []
     removed = 0
     for job in jobs:
-        try:
-            submitted = datetime.fromisoformat(job.submitted_at)
-        except (TypeError, ValueError):
+        # Shared with the card rendering so a "Z"-suffixed timestamp from the
+        # jobs list endpoint is understood here too — Python 3.9 (QGIS LTR)
+        # cannot parse it directly, and an unparseable date keeps a job forever.
+        submitted = job_summary.parse_iso8601(job.submitted_at)
+        if submitted is None:
             kept.append(job)
             continue
-        if submitted.tzinfo is None:
-            submitted = submitted.replace(tzinfo=timezone.utc)
         if submitted < cutoff:
             removed += 1
         else:

@@ -106,6 +106,10 @@ class JobsPanel(QWidget):
                 poll_task.job_failed,
                 poll_task.job_poll_abandoned,
                 poll_task.auth_missing,
+                # The completion signals too: their slots hold a reference to
+                # this panel, and cancelling is exactly what makes them fire.
+                poll_task.taskCompleted,
+                poll_task.taskTerminated,
             ):
                 with contextlib.suppress(TypeError, RuntimeError):
                     signal.disconnect()

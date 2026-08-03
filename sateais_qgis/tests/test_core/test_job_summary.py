@@ -70,11 +70,38 @@ class TestFormatSceneId:
         assert job_summary.format_scene_id("") == ""
 
 
+class TestParseIso8601:
+    def test_accepts_the_z_suffix_the_jobs_list_returns(self):
+        # datetime.fromisoformat only learned "Z" in 3.11, and QGIS LTR ships
+        # Python 3.9 — without this, every synced job's date fails to parse.
+        parsed = job_summary.parse_iso8601("2026-07-03T03:39:21.506327Z")
+        assert parsed is not None
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_accepts_an_explicit_offset(self):
+        assert job_summary.parse_iso8601("2026-07-30T05:12:00+00:00") is not None
+
+    def test_naive_timestamps_are_treated_as_utc(self):
+        parsed = job_summary.parse_iso8601("2026-07-30T05:12:00")
+        assert parsed is not None and parsed.utcoffset() == timedelta(0)
+
+    def test_unparseable_input_returns_none(self):
+        for value in ("", "not a date", None, 123):
+            assert job_summary.parse_iso8601(value) is None
+
+
 class TestFormatSubmittedAt:
     def test_absolute_and_relative(self):
         now = datetime(2026, 7, 30, 23, 12, tzinfo=timezone.utc)
         rendered = job_summary.format_submitted_at("2026-07-30T05:12:00+00:00", now=now)
         assert rendered.endswith("(18h ago)")
+
+    def test_z_suffixed_timestamps_render(self):
+        now = datetime(2026, 7, 30, 23, 12, tzinfo=timezone.utc)
+        rendered = job_summary.format_submitted_at("2026-07-30T05:12:00Z", now=now)
+        assert rendered.endswith("(18h ago)")
+        assert "Z" not in rendered
 
     def test_naive_timestamps_are_treated_as_utc(self):
         now = datetime(2026, 7, 30, 5, 42, tzinfo=timezone.utc)

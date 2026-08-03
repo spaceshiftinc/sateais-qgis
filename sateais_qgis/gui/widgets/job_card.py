@@ -210,7 +210,18 @@ class JobCard(QFrame):
             f"{job_summary.format_submitted_at(self._job.submitted_at)}"
             f"  ·  {self._job.job_id[:_SHORT_ID_CHARS]}…"
         )
-        self.setToolTip(job_summary.build_request_tooltip(self._job))
+        # Escape rather than trust: tooltips have no setTextFormat, and Qt decides
+        # rich vs plain by sniffing the string. Today's tooltip always starts with
+        # plain text so it renders as plain, but that would flip if a value ever
+        # led with markup — convertFromPlainText makes the docstring's promise real.
+        # WhiteSpaceNormal is passed explicitly: PyQt defaults to WhiteSpacePre,
+        # which turns every space into &nbsp; and stops the tooltip from wrapping.
+        self.setToolTip(
+            Qt.convertFromPlainText(
+                job_summary.build_request_tooltip(self._job),
+                Qt.WhiteSpaceMode.WhiteSpaceNormal,
+            )
+        )
 
     def _refresh_status_badge(self) -> None:
         """Render the status badge, promoting a completed job to its find count."""
