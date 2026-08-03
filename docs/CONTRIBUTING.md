@@ -62,9 +62,10 @@ uv run --no-project --with ruff ruff check .
 
 ## Release
 
-1. Bump `version=` in `sateais_qgis/metadata.txt` and move the CHANGELOG
-   *Unreleased* entries under the new version heading with the release date
-   (mirror the summary in the `changelog=` block of `metadata.txt`).
+1. Bump the version in all three places it is hard-coded — `version=` in
+   `sateais_qgis/metadata.txt`, the `changelog=` block just below it, and
+   `USER_AGENT` in `sateais_qgis/core/api/http.py` — and move the CHANGELOG
+   *Unreleased* entries under the new version heading with the release date.
 2. Open a release PR from `develop` to `main` and merge it with a **merge
    commit** — never squash or rebase it, so `main` keeps the exact commits of
    `develop` and the branches never diverge.

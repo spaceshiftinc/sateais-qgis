@@ -3,7 +3,7 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-03
 
 ### Added
 - Jobs cards now show **what was requested** — the analysed period, or the scene for
@@ -36,6 +36,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
   hover) away.
 
 ### Fixed
+- Timestamps from the jobs list endpoint (`…Z`) are parsed on Python 3.9, which both
+  QGIS LTR 3.34 and 3.40 ship. Synced jobs previously showed a raw ISO string instead
+  of a date, and were never dropped by the 30-day retention.
 - The background job poll is now cancelled when the panel is torn down (plugin
   unload / QGIS close). It used to keep running into QGIS's own shutdown, where a
   task thread finishing after the auth manager has been destroyed can trip a
