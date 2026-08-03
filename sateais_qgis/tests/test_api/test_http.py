@@ -363,6 +363,22 @@ class TestJobFromDict:
         job = _job_from_dict({"job_id": "x", "status": "weird"})
         assert job.status == JobStatus.UNKNOWN
 
+    def test_request_params_are_kept(self):
+        # Only the job-list endpoint returns these; they are what lets the Jobs
+        # tab describe a job submitted from the console / CLI / MCP.
+        params = {"polygon": "POLYGON((0 0,1 0,1 1,0 0))", "date_start": "2026-01-03"}
+        job = _job_from_dict({"job_id": "x", "status": "completed", "request_params": params})
+        assert job.request_params == params
+
+    def test_request_params_default_to_none(self):
+        job = _job_from_dict({"job_id": "x", "status": "pending"})
+        assert job.request_params is None
+
+    def test_non_dict_request_params_are_dropped(self):
+        for value in ("nope", ["a"], 3, True):
+            job = _job_from_dict({"job_id": "x", "status": "pending", "request_params": value})
+            assert job.request_params is None
+
 
 class TestGetMe:
     @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")

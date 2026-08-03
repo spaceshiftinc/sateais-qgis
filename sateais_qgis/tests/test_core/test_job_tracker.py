@@ -90,6 +90,136 @@ class TestAddAndList:
         )
         assert job_tracker.list_all()[0].polygon is None
 
+    def test_legacy_entry_without_request_context_loads_with_defaults(self, fake_store):
+        # Same contract for the request fields: entries written by earlier
+        # versions must load unchanged, which is why no migration is needed.
+        fake_store.setValue(
+            "jobs_v1",
+            json.dumps(
+                [
+                    {
+                        "job_id": "old",
+                        "analysis_type": "timeseries",
+                        "submitted_at": "2026-01-01T00:00:00+00:00",
+                    }
+                ]
+            ),
+        )
+        job = job_tracker.list_all()[0]
+        assert job.scene_id is None
+        assert job.date is None
+        assert job.date_start is None
+        assert job.date_end is None
+        assert job.request_source == ""
+
+    def test_add_stores_allowlisted_request_parameters(self, fake_store):
+        job_tracker.add(
+            "timeseries",
+            "r-1",
+            request={
+                "polygon": "POLYGON((0 0,1 0,1 1,0 1,0 0))",
+                "date_start": "2026-01-03",
+                "date_end": "2026-07-03",
+                # Constant for every job, so not worth storing.
+                "satellite_id": "sentinel-1",
+                # Not submittable from QGIS; must not leak into the stored blob.
+                "polygon_id": "abc",
+            },
+            request_source="local",
+        )
+
+        job = job_tracker.list_all()[0]
+        assert job.date_start == "2026-01-03"
+        assert job.date_end == "2026-07-03"
+        assert job.polygon == "POLYGON((0 0,1 0,1 1,0 1,0 0))"
+        assert job.request_source == "local"
+        assert "satellite_id" not in job.to_dict()
+        assert "polygon_id" not in job.to_dict()
+
+    def test_add_tolerates_a_missing_or_malformed_request(self, fake_store):
+        job_tracker.add("ship", "r-2", request=None)
+        job_tracker.add("ship", "r-3", request="not a dict")
+        for job_id in ("r-2", "r-3"):
+            job = next(j for j in job_tracker.list_all() if j.job_id == job_id)
+            assert job.scene_id is None
+            assert job.date is None
+
+
+class TestSetRequestContext:
+    def test_fills_in_dates_and_marks_the_source(self, fake_store):
+        job_tracker.add("timeseries", "s-1")
+        result = job_tracker.set_request_context(
+            "s-1", {"date_start": "2026-01-03", "date_end": "2026-07-03"}, "server"
+        )
+
+        assert result is not None
+        assert result.date_start == "2026-01-03"
+        assert result.request_source == "server"
+        assert job_tracker.list_all()[0].date_end == "2026-07-03"
+
+    def test_none_values_do_not_erase_what_is_stored(self, fake_store):
+        job_tracker.add("ship", "s-2", request={"scene_id": "S1A_X"}, request_source="local")
+        job_tracker.set_request_context("s-2", {"date": "2026-01-01"}, "server")
+
+        job = job_tracker.list_all()[0]
+        assert job.scene_id == "S1A_X"
+        assert job.date == "2026-01-01"
+
+    def test_backfills_a_missing_polygon(self, fake_store):
+        # This is what makes AOI preview work for console / CLI / MCP jobs.
+        job_tracker.add("timeseries", "s-3")
+        job_tracker.set_request_context("s-3", {"polygon": "POLYGON((0 0,1 0,1 1,0 0))"}, "server")
+        assert job_tracker.list_all()[0].polygon == "POLYGON((0 0,1 0,1 1,0 0))"
+
+    def test_never_overwrites_the_polygon_the_user_drew(self, fake_store):
+        drawn = "POLYGON((0 0,1 0,1 1,0 1,0 0))"
+        job_tracker.add("timeseries", "s-4", polygon=drawn)
+        job_tracker.set_request_context("s-4", {"polygon": "POLYGON((9 9,8 8,7 7,9 9))"}, "server")
+        assert job_tracker.list_all()[0].polygon == drawn
+
+    def test_non_string_values_are_ignored(self, fake_store):
+        job_tracker.add("timeseries", "s-5")
+        job_tracker.set_request_context("s-5", {"date_start": 20260103, "date_end": True}, "server")
+
+        job = job_tracker.list_all()[0]
+        assert job.date_start is None
+        assert job.date_end is None
+
+    def test_unavailable_never_demotes_a_locally_captured_request(self, fake_store):
+        # A Sync that returns no request_params for a job we submitted ourselves
+        # must not erase the fact that we captured it at submit time.
+        job_tracker.add("ship", "s-8", request={"scene_id": "S1A_X"}, request_source="local")
+        job_tracker.set_request_context("s-8", None, "unavailable")
+
+        job = job_tracker.list_all()[0]
+        assert job.request_source == "local"
+        assert job.scene_id == "S1A_X"
+
+    def test_unavailable_still_marks_a_job_that_never_had_a_request(self, fake_store):
+        job_tracker.add("ship", "s-9")
+        job_tracker.set_request_context("s-9", None, "unavailable")
+        assert job_tracker.list_all()[0].request_source == "unavailable"
+
+    def test_empty_source_leaves_the_marker_alone(self, fake_store):
+        job_tracker.add("ship", "s-6", request={"scene_id": "S1A_X"}, request_source="local")
+        job_tracker.set_request_context("s-6", {"date": "2026-01-01"}, "")
+        assert job_tracker.list_all()[0].request_source == "local"
+
+    def test_unknown_job_returns_none(self, fake_store):
+        assert job_tracker.set_request_context("nope", {"date": "2026-01-01"}, "server") is None
+
+    def test_survives_a_json_round_trip(self, fake_store):
+        job_tracker.add(
+            "ship",
+            "s-7",
+            request={"scene_id": "S1A_IW_GRDH", "date": "2026-01-01"},
+            request_source="local",
+        )
+        stored = json.loads(fake_store.value("jobs_v1"))
+        assert stored[0]["scene_id"] == "S1A_IW_GRDH"
+        assert stored[0]["date"] == "2026-01-01"
+        assert stored[0]["request_source"] == "local"
+
 
 class TestUpdateStatus:
     def test_update_existing(self, fake_store):

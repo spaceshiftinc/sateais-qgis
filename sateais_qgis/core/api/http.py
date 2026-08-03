@@ -26,7 +26,7 @@ from .types import Job, JobStatus
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
-USER_AGENT = "sateais-qgis-plugin/0.1.3"
+USER_AGENT = "sateais-qgis-plugin/0.2.0"
 
 
 class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -248,6 +248,7 @@ def _job_from_dict(data: Any) -> Job:
     job_id = data.get("job_id")
     if not isinstance(job_id, str) or not job_id:
         raise APIError(0, None, "response is missing a valid job_id")
+    request_params = data.get("request_params")
     return Job(
         job_id=job_id,
         status=JobStatus.parse(data.get("status")),
@@ -257,6 +258,7 @@ def _job_from_dict(data: Any) -> Job:
         error_code=data.get("error_code") or data.get("error"),
         error_message=data.get("error_message"),
         endpoint_id=data.get("endpoint_id"),
+        request_params=request_params if isinstance(request_params, dict) else None,
     )
 
 

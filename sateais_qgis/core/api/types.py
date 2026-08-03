@@ -43,6 +43,10 @@ class Job:
     # Detection type ("ship", "timeseries", …). Only populated by the job-list
     # endpoint; single-job responses do not include it.
     endpoint_id: str | None = None
+    # The parameters the job was submitted with, echoed back verbatim. Also
+    # list-only, which is why polling can never recover them — Sync is the only
+    # way to learn what a job submitted elsewhere actually asked for.
+    request_params: dict[str, Any] | None = None
 
     @property
     def is_terminal(self) -> bool:

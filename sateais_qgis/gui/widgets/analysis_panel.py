@@ -7,6 +7,8 @@ are guided to Settings before they can hit an auth error.
 
 from __future__ import annotations
 
+from typing import Any
+
 from qgis.core import Qgis
 from qgis.PyQt.QtCore import QCoreApplication, Qt, QUrl, pyqtSignal
 from qgis.PyQt.QtGui import QDesktopServices
@@ -22,7 +24,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ...core import client_factory
+from ...core import client_factory, job_summary
 from ...workers import submit_task
 from ...workers.lifecycle import detach_worker
 from ...workers.submit_task import SubmitAnalysisWorker
@@ -34,37 +36,38 @@ from .scene_polygon_form import ScenePolygonForm
 # form_index: 0 = scene_polygon_form, 1 = date_range_form
 # subtitle / tooltip: 数値 (面積上限や推論時間) は API 側と drift しやすいので書かず、
 # 何を検出するか + 指定方法だけを添える。詳細は docs.spcsft.com 側で。
+# label は core.job_summary から引く (Jobs カード・tooltip・検索と共通の単一定義)。
 ANALYSIS_OPTIONS: list[tuple[str, str, int, str, str]] = [
     (
-        "Ship",
+        job_summary.ANALYSIS_LABELS["ship"],
         "ship",
         0,
         "Detect ships (vessels)",
         "Detect ships from SAR satellite imagery. Specify a scene ID or an AOI + date.",
     ),
     (
-        "Oil Slick",
+        job_summary.ANALYSIS_LABELS["oilslick"],
         "oilslick",
         0,
         "Detect oil slicks on the sea surface",
         "Detect oil slicks (surface oil films) from SAR imagery. Specify a scene ID or an AOI + date.",
     ),
     (
-        "New Building",
+        job_summary.ANALYSIS_LABELS["newbuilding"],
         "newbuilding",
         1,
         "Detect newly built structures in a period",
         "Detect buildings newly constructed within an AOI between date_start and date_end.",
     ),
     (
-        "Disappeared Building",
+        job_summary.ANALYSIS_LABELS["disappearbuilding"],
         "disappearbuilding",
         1,
         "Detect demolished structures in a period",
         "Detect buildings demolished within an AOI between date_start and date_end.",
     ),
     (
-        "Time Series",
+        job_summary.ANALYSIS_LABELS["timeseries"],
         "timeseries",
         1,
         "Detect time-series changes over a period",
@@ -105,16 +108,22 @@ class AnalysisPanel(QWidget):
     """Analysis type selector + dynamic form + submit button."""
 
     polygon_picker_requested = pyqtSignal()
-    job_submitted = pyqtSignal(str, str, str)  # (job_id, analysis_type, polygon_wkt_or_empty)
+    # (job_id, analysis_type, request_params) — the whole submitted parameter set
+    # travels with the job so the Jobs tab can say what was asked for.
+    job_submitted = pyqtSignal(str, str, object)
     settings_requested = pyqtSignal()  # welcome-page CTA → open the auth dialog
 
     def __init__(self, iface, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.iface = iface
         self._worker: SubmitAnalysisWorker | None = None
-        # AOI polygon captured at submit time so the Jobs tab can later
-        # preview it; empty string for scene-id-only submissions.
-        self._submit_polygon: str = ""
+        # Request captured at submit time: the AOI so the Jobs tab can preview it,
+        # plus the dates / scene id so the card is identifiable. Snapshotted at
+        # submit rather than read back on completion, because the user is free to
+        # change the form (including the analysis type) while a submit is in
+        # flight.
+        self._submit_request: dict[str, Any] = {}
+        self._submit_type: str = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -289,9 +298,10 @@ class AnalysisPanel(QWidget):
             return
 
         analysis_type = self._current_analysis_type()
-        # Captured here so the Jobs tab can later preview the AOI on the map
-        # (scene-id-only submissions leave this empty).
-        self._submit_polygon = kwargs.get("polygon") or ""
+        # Snapshot what is being submitted. ``build_kwargs`` stays a pure API
+        # payload, so this is a copy rather than a reference the form could reuse.
+        self._submit_request = dict(kwargs)
+        self._submit_type = analysis_type
 
         self.submit_button.setEnabled(False)
         self.progress.setVisible(True)
@@ -335,8 +345,11 @@ class AnalysisPanel(QWidget):
 
         if ok:
             job_id = payload
-            analysis_type = self._current_analysis_type()
-            polygon = self._submit_polygon
+            # Use the snapshot taken at submit time, not the form's current
+            # state: the user may have switched analysis type while the request
+            # was in flight, which would otherwise mislabel the job for good.
+            analysis_type = self._submit_type
+            request = self._submit_request
             QApplication.clipboard().setText(job_id)
             self._show_status(True, self.tr(f"Submitted: {job_id} (copied to clipboard)"))
             self.iface.messageBar().pushMessage(
@@ -346,7 +359,7 @@ class AnalysisPanel(QWidget):
                 duration=6,
             )
             self._current_form().clear()
-            self.job_submitted.emit(job_id, analysis_type, polygon)
+            self.job_submitted.emit(job_id, analysis_type, request)
         else:
             message = ERROR_MESSAGES.get(payload, ERROR_MESSAGES[submit_task.ERROR_SERVER_ERROR])
             self._show_status(False, self.tr(message))
