@@ -12,7 +12,7 @@ from sateais_qgis.core import job_summary
 class StubJob:
     """Stands in for TrackedJob so this module stays importable without Qt."""
 
-    job_id: str = "3816209d-1a2b-4c3d-8e9f-0a1b2c3d4e5f"
+    job_id: str = "00000000-1111-2222-3333-444444444444"
     analysis_type: str = "timeseries"
     submitted_at: str = "2026-07-30T05:12:00+00:00"
     scene_id: str | None = None
