@@ -21,7 +21,11 @@ from ..core import client_factory, settings
 from ..workers.lifecycle import detach_worker
 from .styles import COSMIC_STYLESHEET
 
-CONSOLE_URL = "https://console.spcsft.com"
+# アカウントを持たない人の遷移先。コンソールのルート（console.spcsft.com/）は
+# 未ログインだとログイン画面へリダイレクトされるため、「アカウントを作る」導線
+# には使えない。src はコンソール側で流入元を集計するための印で、個人を特定する
+# 値は載せない。
+SIGNUP_URL = "https://console.spcsft.com/register?src=qgis_plugin"
 
 
 class _TestConnectionWorker(QThread):
@@ -144,7 +148,9 @@ class AuthDialog(QDialog):
         )
 
     def _on_open_console(self) -> None:
-        QDesktopServices.openUrl(QUrl(CONSOLE_URL))
+        # 鍵を持っていない人がここを押すため、ログイン必須のルートではなく
+        # 登録ページへ送る（ルートは未ログインだとログイン画面に落ちる）。
+        QDesktopServices.openUrl(QUrl(SIGNUP_URL))
 
     def _on_test_clicked(self) -> None:
         # Buttons are disabled while a check runs, but guard anyway so two
