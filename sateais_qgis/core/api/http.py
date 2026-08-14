@@ -26,7 +26,7 @@ from .types import Job, JobStatus
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
-USER_AGENT = "sateais-qgis-plugin/0.2.0"
+USER_AGENT = "sateais-qgis-plugin/0.3.0"
 
 
 class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
