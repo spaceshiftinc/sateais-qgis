@@ -3,6 +3,16 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-14
+
+### Fixed
+- **Getting an API key now leads to the sign-up page.** Both the welcome page and the
+  Settings dialog opened the console root, which redirects to the login screen when you
+  are not signed in — so anyone told to "create an account" landed on a login form
+  instead. They now open the registration page directly.
+- The welcome page leads with **Create a free account**; opening Settings is the
+  secondary action. Opening Settings does nothing useful before you have a key.
+
 ## [0.2.0] - 2026-08-03
 
 ### Added
