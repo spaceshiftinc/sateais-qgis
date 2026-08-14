@@ -28,7 +28,7 @@ from ...core import client_factory, job_summary
 from ...workers import submit_task
 from ...workers.lifecycle import detach_worker
 from ...workers.submit_task import SubmitAnalysisWorker
-from ..auth_dialog import CONSOLE_URL
+from ..auth_dialog import SIGNUP_URL
 from .date_range_form import DateRangeForm
 from .scene_polygon_form import ScenePolygonForm
 
@@ -159,8 +159,8 @@ class AnalysisPanel(QWidget):
 
         steps = QLabel(
             self.tr(
-                "1.  Create an account and copy your API key from the SateAIs console\n"
-                "2.  Register the key in Settings\n"
+                "1.  Create a free account — new accounts include welcome credits\n"
+                "2.  Copy your API key and paste it into Settings\n"
                 "3.  Draw an area on the map and submit your first analysis"
             )
         )
@@ -170,17 +170,20 @@ class AnalysisPanel(QWidget):
 
         layout.addSpacing(8)
 
-        open_settings = QPushButton(self.tr("Open Settings…"))
-        open_settings.setObjectName("PrimaryButton")
+        # 初回の人が取るべき行動は「アカウントを作る」なので、そちらを主ボタンに
+        # 置く。以前は Settings が主ボタンだったが、鍵を持っていない人にとっては
+        # 開いても何もできない。
+        create_account = QPushButton(self.tr("Create a free account →"))
+        create_account.setObjectName("PrimaryButton")
+        create_account.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(SIGNUP_URL)))
+        layout.addWidget(create_account)
+
+        open_settings = QPushButton(self.tr("I already have an API key — open Settings"))
+        open_settings.setObjectName("GhostButton")
+        open_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_settings.setFlat(True)
         open_settings.clicked.connect(self.settings_requested)
         layout.addWidget(open_settings)
-
-        get_key = QPushButton(self.tr("Get an API key at console.spcsft.com →"))
-        get_key.setObjectName("GhostButton")
-        get_key.setCursor(Qt.CursorShape.PointingHandCursor)
-        get_key.setFlat(True)
-        get_key.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(CONSOLE_URL)))
-        layout.addWidget(get_key)
 
         layout.addStretch()
         return page
