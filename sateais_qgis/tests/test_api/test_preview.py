@@ -137,3 +137,29 @@ class TestClientPreview:
         with pytest.raises(InvalidAnalysisRequestError):
             client.analyze.preview("newbuilding", polygonn="typo")
         assert api.previewed == []
+
+
+class TestSceneShortagePayload:
+    """orchestrator #300 の応答形をそのまま固定する。"""
+
+    # PR #300 の本文にあるレスポンス例
+    PAYLOAD = {
+        "area_sqkm": None,
+        "coverage": None,
+        "credits": {"estimated": 0.04, "balance": 480.0, "sufficient": True},
+        "warnings": [
+            {
+                "code": "SCENE_NOT_FOUND",
+                "message": "No scenes are available for this area and period.",
+            }
+        ],
+    }
+
+    def test_parses_without_coverage(self):
+        p = preview_from_dict(self.PAYLOAD)
+        assert p.coverage is None
+        assert p.area_sqkm is None
+        # 金額は返るが、シーンが無い以上これは実行できる印ではない
+        assert p.credits is not None
+        assert p.credits.estimated == 0.04
+        assert p.warnings[0]["code"] == "SCENE_NOT_FOUND"

@@ -72,8 +72,27 @@ def balance_note(sufficient: bool | None, balance: float | None) -> str:
     return ""
 
 
+# シーンが無い / 前後比較に足りないときにサーバが載せる警告コード
+# (orchestrator: shared/scene_lookup.py SCENES_UNAVAILABLE_CODES)。
+# 同名のコードで投入後のジョブも失敗するので、事前・事後を 1 つの表で読める。
+SCENES_UNAVAILABLE_CODES = frozenset({"SCENE_NOT_FOUND", "INSUFFICIENT_SCENES"})
+
+
+def scenes_unavailable(warnings: list[dict[str, Any]]) -> bool:
+    """True when the server says there is nothing to analyse for these inputs.
+
+    ``coverage`` is absent in this case as well, but for a different reason
+    than a catalogue timeout — telling the user "the cost assumes the full
+    area" here would be wrong twice over: nothing would be analysed, and the
+    fix is the period, not the area.
+    """
+    return any(w.get("code") in SCENES_UNAVAILABLE_CODES for w in warnings)
+
+
 # Fixed sentences, verbatim from the widget (format.ts / map.html).
 CHECKING = "Checking coverage and cost…"
+# format.ts の failureLabel(SCENE_NOT_FOUND) と同じ次の一手
+SCENES_UNAVAILABLE_HINT = "Try a nearby date, a longer period, or a wider area."
 COVERAGE_UNCHECKED = (
     "The analysed area could not be checked this time. The cost assumes the full area."
 )
@@ -105,6 +124,9 @@ __all__ = [
     "balance_note",
     "area_km2_label",
     "warning_messages",
+    "scenes_unavailable",
+    "SCENES_UNAVAILABLE_CODES",
+    "SCENES_UNAVAILABLE_HINT",
     "CHECKING",
     "COVERAGE_UNCHECKED",
     "ESTIMATE_FAILED",

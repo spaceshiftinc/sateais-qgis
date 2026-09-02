@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from qgis.core import Qgis
-from qgis.PyQt.QtCore import QCoreApplication, Qt, QUrl, pyqtSignal
+from qgis.PyQt.QtCore import QCoreApplication, Qt, QTimer, QUrl, pyqtSignal
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import (
     QApplication,
@@ -25,12 +25,19 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ...core import client_factory, job_summary
+from ...core.api.types import Preview
 from ...workers import submit_task
 from ...workers.lifecycle import detach_worker
+from ...workers.preview_task import PreviewWorker
 from ...workers.submit_task import SubmitAnalysisWorker
 from ..auth_dialog import SIGNUP_URL
+from ..icons import kind_icon
 from .date_range_form import DateRangeForm
+from .estimate_card import EstimateCard
 from .scene_polygon_form import ScenePolygonForm
+
+# 入力を打っている最中に投げない。止まってから見積もる
+PREVIEW_DEBOUNCE_MS = 600
 
 # (label, analysis_type, form_index, subtitle, tooltip)
 # form_index: 0 = scene_polygon_form, 1 = date_range_form
@@ -112,6 +119,9 @@ class AnalysisPanel(QWidget):
     # travels with the job so the Jobs tab can say what was asked for.
     job_submitted = pyqtSignal(str, str, object)
     settings_requested = pyqtSignal()  # welcome-page CTA → open the auth dialog
+    # (requested_wkt, analysed_wkt|None) — キャンバスに重ねる 2 つの範囲。
+    # 見積もりが取れないうちは analysed=None で「まだ分からない」を表す
+    coverage_changed = pyqtSignal(str, object)
 
     def __init__(self, iface, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -124,6 +134,15 @@ class AnalysisPanel(QWidget):
         # flight.
         self._submit_request: dict[str, Any] = {}
         self._submit_type: str = ""
+        # 見積もりは入力のたびに投げ直す。古い応答が新しい入力の値として
+        # 表示されないよう、投げるたびに世代を進めて着信時に照合する
+        self._preview_worker: PreviewWorker | None = None
+        self._preview_seq = 0
+        self._preview_retried = False
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(PREVIEW_DEBOUNCE_MS)
+        self._preview_timer.timeout.connect(self._start_preview)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -204,8 +223,9 @@ class AnalysisPanel(QWidget):
 
         outer.addWidget(self._section_label(self.tr("Analysis Type")))
         self.type_combo = QComboBox()
-        for label, _, _, _, _ in ANALYSIS_OPTIONS:
-            self.type_combo.addItem(label)
+        for label, analysis_type, _, _, _ in ANALYSIS_OPTIONS:
+            # アイコンと色は MCP ウィジェット・結果レイヤーと同じ出どころ
+            self.type_combo.addItem(kind_icon(analysis_type), label)
         self.type_combo.currentIndexChanged.connect(self._on_type_changed)
         outer.addWidget(self.type_combo)
 
@@ -221,9 +241,15 @@ class AnalysisPanel(QWidget):
         self.date_range_form = DateRangeForm(self)
         self.scene_polygon_form.polygon_picker_requested.connect(self.polygon_picker_requested.emit)
         self.date_range_form.polygon_picker_requested.connect(self.polygon_picker_requested.emit)
+        self.scene_polygon_form.inputs_changed.connect(self._on_inputs_changed)
+        self.date_range_form.inputs_changed.connect(self._on_inputs_changed)
         self._stack.addWidget(self.scene_polygon_form)
         self._stack.addWidget(self.date_range_form)
         outer.addWidget(self._stack)
+
+        # 投入ボタンの真上。押す直前に、何が解析され幾ら掛かるかを読む場所
+        self.estimate_card = EstimateCard(self)
+        outer.addWidget(self.estimate_card)
 
         # Status + submit
         self.status_label = QLabel("")
@@ -287,6 +313,93 @@ class AnalysisPanel(QWidget):
         self.type_subtitle.setText(subtitle)
         self.type_combo.setToolTip(tooltip)
         self._clear_status()
+        # 種別が変われば解析されるシーンも料金も変わる。前の見積もりは捨てる
+        self._on_inputs_changed()
+
+    # --- pre-run estimate ----------------------------------------------------
+
+    def _on_inputs_changed(self) -> None:
+        """Inputs changed: drop the stale estimate and schedule a fresh one."""
+        self._drop_preview()
+        kwargs = self._current_form().build_kwargs()
+        polygon = (kwargs or {}).get("polygon")
+        # scene_id 指定では解析範囲がシーンで決まるので、地図に重ねる要求範囲もない
+        self.coverage_changed.emit(polygon or "", None)
+        if kwargs is None or not polygon:
+            return
+        self._preview_retried = False
+        self._preview_timer.start()
+
+    def _drop_preview(self) -> None:
+        """Invalidate any in-flight estimate and clear what is on screen.
+
+        Advancing the sequence is what makes a late response harmless: it
+        arrives, fails the check, and is discarded instead of being shown
+        against inputs it was never computed for.
+        """
+        self._preview_seq += 1
+        self._preview_timer.stop()
+        self.estimate_card.reset()
+
+    def _detach_preview_worker(self) -> None:
+        """Let go of the current estimate worker without waiting for it.
+
+        Its result is already invalidated by the sequence number, so there is
+        nothing to wait for. Blocking on it instead would mean that redrawing
+        the area while an estimate is in flight leaves the card empty until the
+        user touches an input again.
+        """
+        worker = self._preview_worker
+        self._preview_worker = None
+        if worker is None:
+            return
+        try:
+            worker.finished_signal.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        if worker.isRunning():
+            detach_worker(worker)
+
+    def _start_preview(self) -> None:
+        kwargs = self._current_form().build_kwargs()
+        if kwargs is None or not kwargs.get("polygon"):
+            return
+
+        # 前の問い合わせが残っていても待たない（結果は seq で無効化済み）
+        self._detach_preview_worker()
+        self._preview_seq += 1
+        seq = self._preview_seq
+        self.estimate_card.show_busy()
+
+        worker = PreviewWorker(self._current_analysis_type(), dict(kwargs), parent=self)
+        worker.finished_signal.connect(
+            lambda ok, payload, seq=seq: self._on_preview_finished(ok, payload, seq)
+        )
+        worker.finished.connect(worker.deleteLater)
+        self._preview_worker = worker
+        worker.start()
+
+    def _on_preview_finished(self, ok: bool, payload: Any, seq: int) -> None:
+        if seq != self._preview_seq:
+            # 入力が変わった後に届いた応答。捨てる。**_preview_worker は触らない**
+            # ——すでに次の問い合わせが入っているので、ここで消すと取り違える
+            return
+        self._preview_worker = None
+
+        if ok and isinstance(payload, Preview):
+            self._preview_retried = False
+            self.estimate_card.show_preview(payload)
+            coverage = payload.coverage.polygon if payload.coverage else None
+            requested = (self._current_form().build_kwargs() or {}).get("polygon") or ""
+            self.coverage_changed.emit(requested, coverage)
+            return
+
+        # 一度だけ聞き直す。コールドスタート直後は落ちても、二度目は返る
+        if not self._preview_retried:
+            self._preview_retried = True
+            self._preview_timer.start()
+            return
+        self.estimate_card.show_failed()
 
     def _on_submit_clicked(self) -> None:
         # The button is disabled while a submit is in flight, but guard anyway:
@@ -321,7 +434,12 @@ class AnalysisPanel(QWidget):
         worker.start()
 
     def teardown(self) -> None:
-        """Detach an in-flight submit worker before this panel is destroyed."""
+        """Detach in-flight workers before this panel is destroyed."""
+        self._preview_timer.stop()
+        # 見積もりは投げっぱなしになりうるので、投入と同じ手順で必ず切り離す。
+        # 残したまま panel が消えると、応答時に破棄済みオブジェクトへ配送される
+        self._detach_preview_worker()
+
         worker = self._worker
         self._worker = None
         if worker is not None:
@@ -362,6 +480,9 @@ class AnalysisPanel(QWidget):
                 duration=6,
             )
             self._current_form().clear()
+            # clear() が inputs_changed を出すので見積もりは自動で消えるが、
+            # 依存させず明示的に落とす
+            self._drop_preview()
             self.job_submitted.emit(job_id, analysis_type, request)
         else:
             message = ERROR_MESSAGES.get(payload, ERROR_MESSAGES[submit_task.ERROR_SERVER_ERROR])

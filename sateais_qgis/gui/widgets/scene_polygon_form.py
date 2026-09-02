@@ -31,6 +31,8 @@ class ScenePolygonForm(QWidget):
     """Form with two mutually exclusive input modes: Scene ID or Polygon + Date."""
 
     polygon_picker_requested = pyqtSignal()
+    # 入力が変われば見積もりも変わる。パネルがこれを受けて preview を投げ直す
+    inputs_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -81,6 +83,16 @@ class ScenePolygonForm(QWidget):
         self.date_dir_combo = self._enum_combo(DATE_DIRECTION_OPTIONS)
         opt_row.addWidget(self.date_dir_combo, 1)
         layout.addLayout(opt_row)
+
+        for signal in (
+            self.scene_id_edit.textChanged,
+            self.polygon_edit.textChanged,
+            self.date_edit.dateChanged,
+            self.orbit_combo.currentIndexChanged,
+            self.date_dir_combo.currentIndexChanged,
+            self._mode_group.idToggled,
+        ):
+            signal.connect(lambda *_: self.inputs_changed.emit())
 
     def _build_scene_widget(self) -> QWidget:
         w = QWidget()

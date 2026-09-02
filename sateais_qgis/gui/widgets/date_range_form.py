@@ -26,6 +26,8 @@ class DateRangeForm(QWidget):
     """Form with required polygon + date_start + date_end + optional orbit."""
 
     polygon_picker_requested = pyqtSignal()
+    # 入力が変われば見積もりも変わる。パネルがこれを受けて preview を投げ直す
+    inputs_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -83,6 +85,11 @@ class DateRangeForm(QWidget):
             self.orbit_combo.addItem(label, value)
         opt_row.addWidget(self.orbit_combo, 1)
         layout.addLayout(opt_row)
+
+        self.polygon_edit.textChanged.connect(self.inputs_changed.emit)
+        self.date_start_edit.dateChanged.connect(self.inputs_changed.emit)
+        self.date_end_edit.dateChanged.connect(self.inputs_changed.emit)
+        self.orbit_combo.currentIndexChanged.connect(self.inputs_changed.emit)
 
     def _section_label(self, text: str) -> QLabel:
         label = QLabel(text)

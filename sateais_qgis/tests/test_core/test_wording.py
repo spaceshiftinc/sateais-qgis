@@ -94,3 +94,21 @@ class TestNonFiniteNumbers:
 
     def test_balance_note_ignores_nan(self):
         assert wording.balance_note(False, float("nan")) == ""
+
+
+class TestScenesUnavailable:
+    """シーン不足は「被覆率を確認できなかった」とは別物。
+
+    orchestrator #300 以降、シーンが無い / 前後比較に足りない場合は
+    ``coverage`` を返さず ``SCENE_NOT_FOUND`` / ``INSUFFICIENT_SCENES`` を
+    warnings に載せる。検索の時間切れと同じ扱いにすると「全範囲ぶん課金される
+    前提で」と案内してしまい、二重に誤る（何も解析されず、直すべきは期間）。
+    """
+
+    def test_detects_both_codes(self):
+        assert wording.scenes_unavailable([{"code": "SCENE_NOT_FOUND", "message": "x"}]) is True
+        assert wording.scenes_unavailable([{"code": "INSUFFICIENT_SCENES", "message": "x"}]) is True
+
+    def test_other_warnings_are_not_scene_shortage(self):
+        assert wording.scenes_unavailable([{"code": "LOW_AOI_COVERAGE", "message": "x"}]) is False
+        assert wording.scenes_unavailable([]) is False

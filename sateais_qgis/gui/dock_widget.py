@@ -12,6 +12,7 @@ from qgis.PyQt.QtWidgets import QDockWidget, QTabWidget, QVBoxLayout, QWidget
 from .styles import COSMIC_STYLESHEET
 from .widgets.analysis_panel import AnalysisPanel
 from .widgets.aoi_preview import AoiPreview
+from .widgets.coverage_band import CoverageBand
 from .widgets.jobs_panel import JobsPanel
 from .widgets.polygon_picker import PolygonPicker
 
@@ -39,6 +40,9 @@ class SateAIsDockWidget(QDockWidget):
         self._previous_map_tool = None
         self._pick_message_item: QgsMessageBarItem | None = None
         self._aoi_preview = AoiPreview(iface.mapCanvas())
+        # 投入前の重ね描き（要求範囲 + 実際に解析される範囲）。Jobs タブの
+        # AOI プレビューとは持ち主も寿命も違うので、別のバンドとして扱う
+        self._coverage_band = CoverageBand(iface.mapCanvas())
         # The job id whose AOI is currently rendered, or None.
         self._previewed_job_id: str | None = None
 
@@ -60,6 +64,7 @@ class SateAIsDockWidget(QDockWidget):
         self.analysis_panel.polygon_picker_requested.connect(self._start_polygon_pick)
         self.analysis_panel.job_submitted.connect(self._on_job_submitted)
         self.analysis_panel.settings_requested.connect(self.settings_requested)
+        self.analysis_panel.coverage_changed.connect(self._on_coverage_changed)
         self.jobs_panel.aoi_preview_requested.connect(self._on_aoi_preview)
         self.jobs_panel.aoi_preview_unavailable.connect(self._on_aoi_preview_unavailable)
         self.jobs_panel.job_removed.connect(self._on_job_removed)
@@ -77,6 +82,7 @@ class SateAIsDockWidget(QDockWidget):
         self.analysis_panel.teardown()
         self.jobs_panel.teardown()
         self._aoi_preview.dispose()
+        self._coverage_band.clear()
         self._previewed_job_id = None
 
     def refresh_auth_state(self) -> None:
@@ -156,6 +162,8 @@ class SateAIsDockWidget(QDockWidget):
     # --- job hand-off --------------------------------------------------------
 
     def _on_job_submitted(self, job_id: str, analysis_type: str, request) -> None:
+        # 投入後は Jobs タブの AOI 表示が引き継ぐ。重ねたままだと二重に描かれる
+        self._coverage_band.clear()
         self.jobs_panel.add_job(job_id, analysis_type, request)
         self.tabs.setCurrentWidget(self.jobs_panel)
         # If the just-submitted job owns the currently-shown "pending" AOI,
@@ -163,6 +171,23 @@ class SateAIsDockWidget(QDockWidget):
         # toggles the same overlay.
         if self._previewed_job_id == _PENDING_JOB_ID:
             self._previewed_job_id = job_id
+
+    def _on_coverage_changed(self, requested_wkt: str, analysed_wkt) -> None:
+        """Draw the requested area and, once known, the area that will be analysed.
+
+        Both are transient: they belong to the form's current inputs, not to a
+        job, so they are replaced on every change and dropped on submit.
+        """
+        if not requested_wkt:
+            self._coverage_band.clear()
+            return
+        self._coverage_band.show_requested(requested_wkt)
+        if analysed_wkt:
+            self._coverage_band.show_analysed(analysed_wkt)
+        else:
+            # まだ分からない（または取得できなかった）。前の範囲を残すと、
+            # いまの入力について分かっているかのように見える
+            self._coverage_band.clear_analysed()
 
     def _on_aoi_preview(self, job_id: str, polygon_wkt: str) -> None:
         # Toggle: clicking the same card again hides the AOI.

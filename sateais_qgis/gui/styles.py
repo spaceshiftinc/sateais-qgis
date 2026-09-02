@@ -59,6 +59,18 @@ QLabel#StatusError {
     font-weight: 500;
 }
 
+QFrame#EstimateCard {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+}
+
+QLabel#EstimateCredits {
+    color: #E6EAF5;
+    font-size: 15px;
+    font-weight: 600;
+}
+
 QLabel#EmptyTitle {
     color: #E6EAF5;
     font-size: 16px;
