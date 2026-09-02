@@ -48,6 +48,17 @@ _STYLE_BY_TYPE: dict[str, dict[str, Any]] = {
 }
 _DEFAULT_STYLE = {"color": "#00d4ff", "fill_alpha": 90, "point_size": 4}
 
+
+def type_color(analysis_type: str | None) -> str:
+    """Border colour for the analysis type.
+
+    This dict is the single source of the type palette (the MCP widget copies
+    these values); icons and panels must read colours through here.
+    """
+    style = _STYLE_BY_TYPE.get(analysis_type or "", _DEFAULT_STYLE)
+    return str(style["color"])
+
+
 # --- signed-change ramp ------------------------------------------------------
 # Diverging scheme for results whose value carries a direction as well as a
 # magnitude. Direction is hue, magnitude is depth within that hue, and the
@@ -426,6 +437,7 @@ def build_aoi_layer_name(analysis_type: str, job_id: str) -> str:
 
 __all__ = [
     "RESULTS_GROUP_NAME",
+    "type_color",
     "load_geojson_as_layer",
     "load_aoi_as_layer",
     "add_to_project",

@@ -5,9 +5,9 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from .errors import JobFailedError, JobTimeoutError
+from .errors import InvalidAnalysisRequestError, JobFailedError, JobTimeoutError
 from .http import DEFAULT_API_BASE_URL, ApiClient, UrllibApiClient
-from .types import AnalysisRequest, AnalysisType, Job
+from .types import AnalysisRequest, AnalysisType, Job, Preview
 
 PollCallback = Callable[[Job], None]
 
@@ -166,6 +166,23 @@ class Analyze:
                 satellite_id=satellite_id,
             )
         )
+
+    def preview(self, analysis_type: str, **kwargs: Any) -> Preview:
+        """Preview a would-be job: analysed coverage and credit estimate.
+
+        Takes the same keyword arguments as the corresponding submit method.
+        No job is created and no credits are consumed, so this is safe to call
+        on every input change.
+        """
+        # 投入メソッドと違い引数が開いているので、未知の型やキー名の誤りは
+        # ここで起きる。生の ValueError / TypeError のままだと呼び出し側が
+        # 「ネットワークエラー」と誤診するため、入力エラーに揃える
+        try:
+            request = AnalysisRequest(analysis_type=AnalysisType(analysis_type), **kwargs)
+        except (ValueError, TypeError) as e:
+            raise InvalidAnalysisRequestError(f"preview: {e}") from e
+        request.validate()
+        return self._api.preview_analysis(request)
 
     def _submit(self, request: AnalysisRequest) -> Job:
         request.validate()

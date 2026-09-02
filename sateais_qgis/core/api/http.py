@@ -22,7 +22,7 @@ from .errors import (
     ServerError,
     ValidationError,
 )
-from .types import Job, JobStatus
+from .types import Job, JobStatus, Preview, preview_from_dict
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
@@ -83,6 +83,7 @@ class ApiClient(Protocol):
     """Transport interface for the SateAIs API (swappable for tests)."""
 
     def submit_analysis(self, request) -> Job: ...  # type: ignore[no-untyped-def]
+    def preview_analysis(self, request) -> Preview: ...  # type: ignore[no-untyped-def]
     def get_job(self, job_id: str) -> Job: ...
     def get_job_result(self, job_id: str) -> dict[str, Any]: ...
     def list_jobs(
@@ -118,6 +119,15 @@ class UrllibApiClient:
         path = f"/analyze/{urllib.parse.quote(request.analysis_type.value, safe='')}"
         data = self._request("POST", path, json_body=request.to_body())
         return _job_from_dict(data)
+
+    def preview_analysis(self, request) -> Preview:  # type: ignore[no-untyped-def]
+        # ボディはジョブ投入と完全に同一 (docs/API.md の preview 節)。ジョブは
+        # 作られずクレジットも消費しないので、入力が変わるたびに呼んでよい
+        path = f"/analyze/{urllib.parse.quote(request.analysis_type.value, safe='')}/preview"
+        data = self._request("POST", path, json_body=request.to_body())
+        if not isinstance(data, dict):
+            raise APIError(0, None, f"unexpected preview payload: {type(data).__name__}")
+        return preview_from_dict(data)
 
     def get_job(self, job_id: str) -> Job:
         data = self._request("GET", f"/jobs/{urllib.parse.quote(job_id, safe='')}")
