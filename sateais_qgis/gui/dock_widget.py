@@ -7,8 +7,16 @@ import contextlib
 from qgis.core import Qgis
 from qgis.gui import QgsMessageBarItem
 from qgis.PyQt.QtCore import QCoreApplication, Qt, pyqtSignal
-from qgis.PyQt.QtWidgets import QDockWidget, QTabWidget, QVBoxLayout, QWidget
+from qgis.PyQt.QtWidgets import (
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from .brand import spark, wordmark
 from .styles import COSMIC_STYLESHEET
 from .widgets.analysis_panel import AnalysisPanel
 from .widgets.aoi_preview import AoiPreview
@@ -16,11 +24,8 @@ from .widgets.coverage_band import CoverageBand
 from .widgets.jobs_panel import JobsPanel
 from .widgets.polygon_picker import PolygonPicker
 
-# `_previewed_job_id` is a job_id string when a Jobs-tab card's AOI is shown.
-# Between a Pick-on-Map completion and its Submit, we use this sentinel so the
-# overlay is treated as an "in-flight AOI" that survives until the job is
-# actually submitted (then transfers to that job_id).
-_PENDING_JOB_ID = "__pending__"
+# `_previewed_job_id` は、Jobs タブのどのジョブの AOI を地図に出しているか。
+# 投入前の範囲は CoverageBand が持つので、ここに入るのは常に実在の job_id。
 
 
 class SateAIsDockWidget(QDockWidget):
@@ -29,7 +34,7 @@ class SateAIsDockWidget(QDockWidget):
     settings_requested = pyqtSignal()  # welcome-page CTA → plugin opens the auth dialog
 
     def __init__(self, iface, parent: QWidget | None = None) -> None:
-        super().__init__("SateAIs", parent)
+        super().__init__("SateAIs API for QGIS", parent)
         self.iface = iface
         self.setObjectName("SateAIsDockWidget")
         self.setAllowedAreas(
@@ -54,6 +59,8 @@ class SateAIsDockWidget(QDockWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        layout.addWidget(self._build_brand_bar())
+
         self.tabs = QTabWidget(content)
         self.analysis_panel = AnalysisPanel(iface, parent=self.tabs)
         self.jobs_panel = JobsPanel(iface, parent=self.tabs)
@@ -72,6 +79,35 @@ class SateAIsDockWidget(QDockWidget):
         self.jobs_panel.start_analysis_requested.connect(self._on_start_analysis)
 
         self.setWidget(content)
+
+    def _build_brand_bar(self) -> QWidget:
+        """SPACESHIFT wordmark + product name, as in the MCP map widget.
+
+        Kept to a single low strip: this sits inside QGIS, not in a full-page
+        iframe, so a hero band would take space the map controls need.
+        """
+        bar = QWidget()
+        bar.setObjectName("BrandBar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.setSpacing(0)
+
+        mark = QLabel()
+        mark.setPixmap(wordmark(color="#E3EBF1", height=15))
+        row.addWidget(mark)
+
+        # ワードマークと製品名が地続きに見えないよう、間に自社マークの閃光を挟む
+        row.addSpacing(14)
+        spark_mark = QLabel()
+        spark_mark.setPixmap(spark(height=11))
+        row.addWidget(spark_mark)
+        row.addSpacing(8)
+
+        name = QLabel("SateAIs")
+        name.setObjectName("SubtitleLabel")
+        row.addWidget(name)
+        row.addStretch()
+        return bar
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -128,24 +164,19 @@ class SateAIsDockWidget(QDockWidget):
             self._pick_message_item = None
 
     def _on_polygon_finished(self, wkt: str, area_km2: float) -> None:
+        # 描いた範囲を地図に残すのは CoverageBand の仕事。set_polygon が
+        # inputs_changed → coverage_changed と伝わって Requested が描かれる。
+        # ここで AoiPreview にも描くと同じ範囲が二重に乗り、③ の Clear では
+        # 片方（CoverageBand）しか消えないので「消しても残る」ように見えた
         self.analysis_panel.set_polygon(wkt, area_km2)
         self.analysis_panel.set_pick_in_progress(False)
         self._dismiss_pick_message()
         self._restore_map_tool()
-        # Keep the polygon visible on the canvas so users can see what they
-        # selected before submitting. Don't zoom — they were already looking at
-        # the right place when they drew it.
-        if self._aoi_preview.show_polygon(wkt, zoom_to_fit=False):
-            self._previewed_job_id = _PENDING_JOB_ID
 
     def _on_polygon_cancelled(self) -> None:
         self.analysis_panel.set_pick_in_progress(False)
         self._dismiss_pick_message()
         self._restore_map_tool()
-        # Drop the in-flight overlay if the user hits Escape.
-        if self._previewed_job_id == _PENDING_JOB_ID:
-            self._aoi_preview.clear()
-            self._previewed_job_id = None
 
     def _dismiss_pick_message(self) -> None:
         if self._pick_message_item is not None:
@@ -162,15 +193,14 @@ class SateAIsDockWidget(QDockWidget):
     # --- job hand-off --------------------------------------------------------
 
     def _on_job_submitted(self, job_id: str, analysis_type: str, request) -> None:
-        # 投入後は Jobs タブの AOI 表示が引き継ぐ。重ねたままだと二重に描かれる
+        # 投入までは入力に紐づく CoverageBand、投入後はジョブに紐づく AoiPreview。
+        # 範囲を地図に残す担当をここで受け渡す（重ねると二重に描かれる）
+        polygon = getattr(request, "polygon", None) or ""
         self._coverage_band.clear()
+        if polygon and self._aoi_preview.show_polygon(polygon, zoom_to_fit=False):
+            self._previewed_job_id = job_id
         self.jobs_panel.add_job(job_id, analysis_type, request)
         self.tabs.setCurrentWidget(self.jobs_panel)
-        # If the just-submitted job owns the currently-shown "pending" AOI,
-        # promote it to belong to this job_id so clicking the job card later
-        # toggles the same overlay.
-        if self._previewed_job_id == _PENDING_JOB_ID:
-            self._previewed_job_id = job_id
 
     def _on_coverage_changed(self, requested_wkt: str, analysed_wkt) -> None:
         """Draw the requested area and, once known, the area that will be analysed.

@@ -31,6 +31,14 @@ REQUESTED_WIDTH = 2
 ANALYSED_COLOR = QColor(0, 159, 232, 220)  # #009FE8
 ANALYSED_FILL = QColor(0, 159, 232, 46)
 ANALYSED_WIDTH = 2
+# 解析されずに残る範囲。青い塗りの「外側」を目で追わせるのは読み取りが遅く、
+# 「検知ゼロ」と「そもそも見ていない」の取り違えを生む。落ちる分を直接塗る。
+# 色は警告色ではなく無彩色に寄せる: これは異常ではなく「衛星が撮っていない」
+# という事実で、地図の主役は解析される範囲の青のほう。要求範囲の破線と同系の
+# グレーだが、あちらは破線・こちらは塗りなので描き方で区別が付く
+UNCOVERED_COLOR = QColor(124, 138, 148, 170)  # #7C8A94
+UNCOVERED_FILL = QColor(124, 138, 148, 48)
+UNCOVERED_WIDTH = 1
 
 
 class CoverageBand:
@@ -45,9 +53,12 @@ class CoverageBand:
         self.canvas = canvas
         self._requested: QgsRubberBand | None = None
         self._analysed: QgsRubberBand | None = None
+        self._uncovered: QgsRubberBand | None = None
+        self._requested_wkt = ""
 
     def show_requested(self, wkt_4326: str) -> bool:
         """Draw the requested polygon. Returns False for empty/invalid WKT."""
+        self._requested_wkt = wkt_4326
         self._requested = self._draw(
             self._requested,
             wkt_4326,
@@ -59,7 +70,11 @@ class CoverageBand:
         return self._requested is not None
 
     def show_analysed(self, wkt_4326: str | None) -> bool:
-        """Draw the analysed coverage. Passing None clears just this band."""
+        """Draw the analysed coverage, and the requested area it leaves out.
+
+        Passing None clears both — the shortfall only means anything against a
+        coverage the server actually returned.
+        """
         self._analysed = self._draw(
             self._analysed,
             wkt_4326 or "",
@@ -68,16 +83,58 @@ class CoverageBand:
             width=ANALYSED_WIDTH,
             dashed=False,
         )
+        self._uncovered = self._draw(
+            self._uncovered,
+            self._uncovered_wkt(wkt_4326),
+            stroke=UNCOVERED_COLOR,
+            fill=UNCOVERED_FILL,
+            width=UNCOVERED_WIDTH,
+            dashed=False,
+        )
         return self._analysed is not None
 
+    def has_uncovered(self) -> bool:
+        """True when part of the requested area is drawn as not analysed."""
+        return self._uncovered is not None
+
     def clear_analysed(self) -> None:
-        """Drop the coverage band only — used when inputs change and the old
+        """Drop the coverage bands only — used when inputs change and the old
         estimate no longer describes what is on screen."""
         self._analysed = self._remove(self._analysed)
+        self._uncovered = self._remove(self._uncovered)
 
     def clear(self) -> None:
+        self._requested_wkt = ""
         self._requested = self._remove(self._requested)
         self._analysed = self._remove(self._analysed)
+        self._uncovered = self._remove(self._uncovered)
+
+    def _uncovered_wkt(self, analysed_wkt: str | None) -> str:
+        """The requested area minus what will be analysed.
+
+        Returns "" when there is nothing to draw — no request, no coverage, or a
+        coverage that already contains the whole request. Geometry operations on
+        user-drawn shapes can fail (self-intersections, antimeridian crossings);
+        a failure here must leave the map as it was rather than raise into the
+        estimate flow, so it degrades to drawing nothing.
+        """
+        if not analysed_wkt or not self._requested_wkt:
+            return ""
+        requested = QgsGeometry.fromWkt(self._requested_wkt)
+        analysed = QgsGeometry.fromWkt(analysed_wkt)
+        if requested.isNull() or analysed.isNull():
+            return ""
+        try:
+            remainder = requested.difference(analysed)
+        except Exception:  # noqa: BLE001
+            return ""
+        if remainder.isNull() or remainder.isEmpty():
+            return ""
+        # 数値誤差で残る髪の毛のような差分を「解析されない範囲」として塗ると、
+        # 全面カバーでも警告色が出てしまう。要求面積に対する比で捨てる
+        if requested.area() > 0 and remainder.area() / requested.area() < 0.005:
+            return ""
+        return remainder.asWkt()
 
     # --- internals -----------------------------------------------------------
 

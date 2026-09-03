@@ -8,6 +8,8 @@ on one side, change it on both.
 
 from __future__ import annotations
 
+import pytest
+
 from sateais_qgis.core import wording
 
 
@@ -112,3 +114,99 @@ class TestScenesUnavailable:
     def test_other_warnings_are_not_scene_shortage(self):
         assert wording.scenes_unavailable([{"code": "LOW_AOI_COVERAGE", "message": "x"}]) is False
         assert wording.scenes_unavailable([]) is False
+
+
+class TestJobMetaFields:
+    """値には見出しを付ける。単位だけでは何の数字か決まらないため。"""
+
+    def test_names_every_value(self):
+        assert wording.job_meta_fields("2026-09-03 12:00", 196.4, 1.96, "3m 31s") == [
+            ("Submitted", "2026-09-03 12:00"),
+            ("Area", "196 km²"),
+            ("Cost", "1.96 credits"),
+            ("Took", "3m 31s"),
+        ]
+
+    def test_drops_unknown_values_rather_than_captioning_a_blank(self):
+        assert wording.job_meta_fields("2026-09-03 12:00", None, None, "") == [
+            ("Submitted", "2026-09-03 12:00"),
+        ]
+
+    def test_zero_credits_reads_as_free_not_as_missing(self):
+        assert ("Cost", "free") in wording.job_meta_fields("x", None, 0, "")
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_nan_and_infinity_are_not_figures(self, bad):
+        labels = [label for label, _ in wording.job_meta_fields("x", bad, bad, "")]
+        assert labels == ["Submitted"]
+
+
+class TestFormatCredits:
+    def test_matches_the_rounding_used_elsewhere(self):
+        assert wording.format_credits(126.9612) == "126.96"
+        assert wording.format_credits(1234.5) == "1,234.50"
+
+
+class TestLegendLabels:
+    """地図の3色の呼び名。全体が2つに分かれる構造が語だけで読めること。"""
+
+    def test_the_two_parts_share_the_word_of_the_whole(self):
+        assert wording.LEGEND_COVERED.lower() in wording.LEGEND_NOT_COVERED.lower()
+
+    def test_the_coverage_sentence_uses_the_same_word_as_the_legend(self):
+        # 凡例の "Covered" と本文の "97% covered" が互いを補強する
+        assert wording.LEGEND_COVERED.lower() in wording.coverage_label(0.97)
+
+    def test_every_label_is_short_enough_for_a_narrow_dock(self):
+        for label in (
+            wording.LEGEND_REQUESTED,
+            wording.LEGEND_COVERED,
+            wording.LEGEND_NOT_COVERED,
+        ):
+            assert len(label) <= 12, label
+
+
+class TestAreaLimitReason:
+    """面積上限だけはサーバが数値付きで理由を返す。
+
+    上限は endpoint ごとに違い、値を返す API も無い。プラグインに書き写すと
+    サーバの変更で黙って嘘になるので、超過したときの文面から数値を取り出して
+    こちらの言葉に組み直す。「拒否されました」だけでは、どれだけ小さくすれば
+    よいかが分からない。
+    """
+
+    SERVER = "Polygon area (52.6 km²) exceeds 50 km² limit for endpoint 'timeseries'"
+
+    def test_states_both_numbers_and_the_next_move(self):
+        said = wording.area_limit_reason(self.SERVER)
+        assert "52.6 km²" in said
+        assert "50 km²" in said
+        assert "smaller" in said
+
+    def test_never_repeats_the_internal_endpoint_id(self):
+        assert "timeseries" not in wording.area_limit_reason(self.SERVER)
+
+    def test_failure_label_uses_the_same_sentence(self):
+        # 事前（preview）と事後（ジョブ失敗）で同じ読み方になること
+        assert wording.failure_label("VALIDATION_ERROR", self.SERVER) == wording.area_limit_reason(
+            self.SERVER
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "",
+            None,
+            "Invalid WKT",
+            # 面積の話ではない検証エラーを取り違えない
+            "date_start must be before date_end",
+        ],
+    )
+    def test_other_validation_errors_are_not_area_limits(self, message):
+        assert wording.area_limit_reason(message) == ""
+
+    def test_thousands_separated_limits_are_read(self):
+        said = wording.area_limit_reason(
+            "Polygon area (31,204.9 km²) exceeds 30,000 km² limit for endpoint 'newbuilding'"
+        )
+        assert "31,204.9 km²" in said and "30,000 km²" in said

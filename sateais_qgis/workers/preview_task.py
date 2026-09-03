@@ -14,6 +14,7 @@ from typing import Any
 from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtCore import QThread, pyqtSignal
 
+from ..core import wording
 from .submit_task import (
     ERROR_AUTH_FAILED,
     ERROR_AUTH_NOT_CONFIGURED,
@@ -36,7 +37,9 @@ class PreviewWorker(QThread):
     Emits:
         finished_signal(success: bool, payload: object):
             On success ``payload`` is a ``Preview``.
-            On failure ``payload`` is one of the ``ERROR_*`` codes (str).
+            On failure ``payload`` is one of the ``ERROR_*`` codes (str), or a
+            ready-to-show sentence from ``core.wording`` when the server gave a
+            specific, user-safe reason (today: the per-endpoint area limit).
     """
 
     finished_signal = pyqtSignal(bool, object)
@@ -81,7 +84,12 @@ class PreviewWorker(QThread):
             self.finished_signal.emit(False, ERROR_AUTH_FAILED)
         except ValidationError as e:
             self._log_api_error("preview validation failed", e)
-            self.finished_signal.emit(False, ERROR_VALIDATION_FAILED)
+            # 面積上限だけはサーバが数値付きで理由を返す。一律「拒否されました」に
+            # 潰すと、どれだけ小さくすればよいかが分からない
+            self.finished_signal.emit(
+                False,
+                wording.area_limit_reason(getattr(e, "message", "")) or ERROR_VALIDATION_FAILED,
+            )
         except PermissionDeniedError as e:
             self._log_api_error("preview permission denied", e)
             self.finished_signal.emit(False, ERROR_PERMISSION_DENIED)
@@ -89,8 +97,8 @@ class PreviewWorker(QThread):
             self._log_api_error("preview not found", e)
             self.finished_signal.emit(False, ERROR_NOT_FOUND)
         except PayloadTooLargeError as e:
-            # 巨大なポリゴンで起きる。ここを SERVER_ERROR に丸めると、
-            # 利用者は範囲を狭めればよいことに気付けない
+            # 413 はアップロードサイズの上限で、このプラグインは何も
+            # アップロードしない。面積の超過は 400 で返る（上の分岐）
             self._log_api_error("preview payload too large", e)
             self.finished_signal.emit(False, ERROR_PAYLOAD_TOO_LARGE)
         except RateLimitError as e:

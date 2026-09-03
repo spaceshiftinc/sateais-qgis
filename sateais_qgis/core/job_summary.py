@@ -18,12 +18,15 @@ if TYPE_CHECKING:
 
 # Display names for the detection types this plugin can submit. Kept here rather
 # than in the Analysis panel so cards, tooltips and search all agree.
+# 呼び名は MCP ウィジェットの kindLabel と同じ = 公開ドキュメントの見出し
+# (api-docs の content/docs/api-reference/analyze/*.mdx の title)。
+# 画面ごとに言い換えると、利用者が読むドキュメントと名前が食い違う。
 ANALYSIS_LABELS: dict[str, str] = {
-    "ship": "Ship",
-    "oilslick": "Oil Slick",
-    "newbuilding": "New Building",
-    "disappearbuilding": "Disappeared Building",
-    "timeseries": "Time Series",
+    "ship": "Ship detection",
+    "oilslick": "Oil slick detection",
+    "newbuilding": "New building detection",
+    "disappearbuilding": "Disappeared building detection",
+    "timeseries": "Time-series change",
 }
 
 # (singular, plural) nouns so a completed job reads "23 ships" / "1 change"
@@ -38,7 +41,9 @@ DETECTION_NOUNS: dict[str, tuple] = {
 
 _SCENE_ID_MAX = 30
 
-MISSING_REQUEST_HINT = "Request details unavailable — press Sync to fetch them."
+# 押す先は Jobs タブ見出しの Refresh。かつて Sync という別ボタンがあった頃の
+# 文言が残っており、存在しない操作を案内していた
+MISSING_REQUEST_HINT = "Request details unavailable — press Refresh to fetch them."
 
 
 def format_analysis_label(analysis_type: str) -> str:
@@ -56,6 +61,30 @@ def format_detection_summary(analysis_type: str, count: int) -> str:
     """Return e.g. ``"23 ships"`` / ``"1 change"`` / ``"12 detections"``."""
     singular, plural = DETECTION_NOUNS.get(analysis_type, ("detection", "detections"))
     return f"{count} {singular if count == 1 else plural}"
+
+
+def format_detection_outcome(analysis_type: str, count: int) -> str:
+    """Return e.g. ``"138 new buildings found"`` / ``"No ships found"``.
+
+    A bare ``138`` beside a name does not say what was counted. Naming the thing
+    makes the number self-describing, and stating the empty case explicitly
+    ("No ships found") distinguishes a finished run that found nothing from a
+    run whose result has not been read yet.
+    """
+    singular, plural = DETECTION_NOUNS.get(analysis_type, ("detection", "detections"))
+    if not count:
+        return f"No {plural} found"
+    return f"{count:,} {singular if count == 1 else plural} found"
+
+
+def format_detection_count(count: int) -> str:
+    """The count as it sits beside the type name: ``"138 found"`` / ``"None found"``.
+
+    The type name is immediately to its left, so the noun would repeat; the long
+    form (``format_detection_outcome``) goes in the tooltip instead. Zero is
+    stated as a word — "0" beside a name reads as a value not yet filled in.
+    """
+    return f"{count:,} found" if count else "None found"
 
 
 def format_scene_id(scene_id: str) -> str:
@@ -94,6 +123,21 @@ def parse_iso8601(value: str) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def format_submitted_short(iso_ts: str) -> str:
+    """Just ``2026-07-30 14:12`` in local time.
+
+    The relative part ("18h ago") is the first thing to go when the row is
+    narrow: it costs a third of the line and never changes what the reader
+    decides. The full form stays available in the tooltip.
+    """
+    if not iso_ts:
+        return ""
+    ts = parse_iso8601(iso_ts)
+    if ts is None:
+        return iso_ts
+    return ts.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 def format_submitted_at(iso_ts: str, now: datetime | None = None) -> str:
@@ -201,6 +245,7 @@ __all__ = [
     "format_detection_summary",
     "format_scene_id",
     "format_submitted_at",
+    "format_submitted_short",
     "format_relative",
     "build_request_summary",
     "build_request_tooltip",

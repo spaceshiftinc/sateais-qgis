@@ -19,6 +19,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ..core import client_factory, settings
 from ..workers.lifecycle import detach_worker
+from .brand import wordmark
 from .styles import COSMIC_STYLESHEET
 
 # アカウントを持たない人の遷移先。コンソールのルート（console.spcsft.com/）は
@@ -62,6 +63,12 @@ class AuthDialog(QDialog):
         outer.setContentsMargins(24, 24, 24, 20)
         outer.setSpacing(14)
 
+        # ドックと同じブランド行を先頭に。設定だけ別物の画面に見えないようにする
+        mark = QLabel()
+        mark.setPixmap(wordmark(color="#E3EBF1", height=15))
+        outer.addWidget(mark)
+        outer.addSpacing(2)
+
         title = QLabel(self.tr("SateAIs Settings"))
         title.setObjectName("TitleLabel")
         subtitle = QLabel(self.tr("Configure your API key to connect to the SateAIs API."))
@@ -97,15 +104,21 @@ class AuthDialog(QDialog):
         divider.setFrameShape(QFrame.Shape.HLine)
         outer.addWidget(divider)
 
+        # ボタンは中央。結果は同じ行に押し込まず、下に折り返して出す
+        # （"Connected as …" はダイアログ幅を超えるので、横並びだと見切れる）
         test_row = QHBoxLayout()
-        test_row.setSpacing(10)
+        test_row.addStretch()
         self.test_button = QPushButton(self.tr("Test Connection"))
         self.test_button.clicked.connect(self._on_test_clicked)
         test_row.addWidget(self.test_button)
+        test_row.addStretch()
+        outer.addLayout(test_row)
+
         self.test_status = QLabel("")
         self.test_status.setObjectName("HintLabel")
-        test_row.addWidget(self.test_status, 1)
-        outer.addLayout(test_row)
+        self.test_status.setWordWrap(True)
+        self.test_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        outer.addWidget(self.test_status)
 
         self.test_progress = QProgressBar()
         self.test_progress.setRange(0, 0)  # indeterminate
@@ -120,7 +133,8 @@ class AuthDialog(QDialog):
         cancel = QPushButton(self.tr("Cancel"))
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
-        self.save_button = QPushButton(self.tr("Save & Close"))
+        # "&" は Qt がニーモニックとして食う（Save_Close と表示される）
+        self.save_button = QPushButton(self.tr("Save and Close"))
         self.save_button.setObjectName("PrimaryButton")
         self.save_button.setDefault(True)
         self.save_button.clicked.connect(self._on_save_clicked)
