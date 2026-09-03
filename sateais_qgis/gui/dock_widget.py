@@ -202,7 +202,9 @@ class SateAIsDockWidget(QDockWidget):
         self.jobs_panel.add_job(job_id, analysis_type, request)
         self.tabs.setCurrentWidget(self.jobs_panel)
 
-    def _on_coverage_changed(self, requested_wkt: str, analysed_wkt) -> None:
+    def _on_coverage_changed(
+        self, requested_wkt: str, analysed_wkt, recenter: bool = False
+    ) -> None:
         """Draw the requested area and, once known, the area that will be analysed.
 
         Both are transient: they belong to the form's current inputs, not to a
@@ -211,7 +213,7 @@ class SateAIsDockWidget(QDockWidget):
         if not requested_wkt:
             self._coverage_band.clear()
             return
-        self._coverage_band.show_requested(requested_wkt)
+        self._coverage_band.show_requested(requested_wkt, recenter=recenter)
         if analysed_wkt:
             self._coverage_band.show_analysed(analysed_wkt)
         else:
