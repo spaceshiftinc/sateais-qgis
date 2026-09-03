@@ -24,6 +24,9 @@ from qgis.gui import QgsMapCanvas, QgsRubberBand
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
 
+# 寄せ方は Jobs タブの AOI 表示と揃える（同じ余白・同じ見え方）
+from .aoi_preview import ZOOM_PADDING_RATIO, _padded
+
 # 要求範囲: 塗らない破線。widget の aoiStyle と同じ読ませ方
 REQUESTED_COLOR = QColor(143, 160, 173, 230)  # #8fa0ad
 REQUESTED_WIDTH = 2
@@ -56,8 +59,15 @@ class CoverageBand:
         self._uncovered: QgsRubberBand | None = None
         self._requested_wkt = ""
 
-    def show_requested(self, wkt_4326: str) -> bool:
-        """Draw the requested polygon. Returns False for empty/invalid WKT."""
+    def show_requested(self, wkt_4326: str, recenter: bool = False) -> bool:
+        """Draw the requested polygon. Returns False for empty/invalid WKT.
+
+        ``recenter`` reframes the canvas onto it. Off by default: after drawing
+        on the map the user is already looking at the right place, and moving
+        the view under them there would be disorienting. Pasting WKT is the
+        opposite case — the area is usually nowhere near the current view, so
+        without this the polygon is drawn somewhere the user cannot see.
+        """
         self._requested_wkt = wkt_4326
         self._requested = self._draw(
             self._requested,
@@ -67,7 +77,20 @@ class CoverageBand:
             width=REQUESTED_WIDTH,
             dashed=True,
         )
+        if recenter and self._requested is not None:
+            self._zoom_to(wkt_4326)
         return self._requested is not None
+
+    def _zoom_to(self, wkt_4326: str) -> None:
+        """Frame the canvas on the polygon, with the same padding as the Jobs tab."""
+        geometry = self._to_canvas_crs(wkt_4326)
+        if geometry is None:
+            return
+        extent = geometry.boundingBox()
+        if extent.isEmpty():
+            return
+        self.canvas.setExtent(_padded(extent, ZOOM_PADDING_RATIO))
+        self.canvas.refresh()
 
     def show_analysed(self, wkt_4326: str | None) -> bool:
         """Draw the analysed coverage, and the requested area it leaves out.
@@ -150,20 +173,9 @@ class CoverageBand:
         band = self._remove(band)
         if not wkt_4326:
             return None
-        geometry = QgsGeometry.fromWkt(wkt_4326)
-        if geometry.isNull() or geometry.isEmpty():
+        geometry = self._to_canvas_crs(wkt_4326)
+        if geometry is None:
             return None
-
-        source_crs = QgsCoordinateReferenceSystem("EPSG:4326")
-        canvas_crs = self.canvas.mapSettings().destinationCrs()
-        if source_crs != canvas_crs:
-            transform = QgsCoordinateTransform(source_crs, canvas_crs, QgsProject.instance())
-            geometry = QgsGeometry(geometry)
-            try:
-                geometry.transform(transform)
-            except Exception:  # noqa: BLE001
-                # 投影できない座標系では描かない。ずれた図形を出すより出さない
-                return None
 
         band = QgsRubberBand(self.canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         band.setColor(stroke)
@@ -174,6 +186,26 @@ class CoverageBand:
         band.setToGeometry(geometry, None)
         band.show()
         return band
+
+    def _to_canvas_crs(self, wkt_4326: str) -> QgsGeometry | None:
+        """Parse WKT and project it onto the canvas, or None if that is not possible."""
+        if not wkt_4326:
+            return None
+        geometry = QgsGeometry.fromWkt(wkt_4326)
+        if geometry.isNull() or geometry.isEmpty():
+            return None
+        source_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+        canvas_crs = self.canvas.mapSettings().destinationCrs()
+        if source_crs == canvas_crs:
+            return geometry
+        transform = QgsCoordinateTransform(source_crs, canvas_crs, QgsProject.instance())
+        projected = QgsGeometry(geometry)
+        try:
+            projected.transform(transform)
+        except Exception:  # noqa: BLE001
+            # 投影できない座標系では描かない。ずれた図形を出すより出さない
+            return None
+        return projected
 
     @staticmethod
     def _remove(band: QgsRubberBand | None) -> None:
