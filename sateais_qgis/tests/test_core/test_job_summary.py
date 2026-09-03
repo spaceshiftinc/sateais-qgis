@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from sateais_qgis.core import job_summary
 
 
@@ -301,3 +303,43 @@ class TestSearchText:
     def test_missing_context_does_not_break_the_haystack(self):
         job = self._job(date_start=None, date_end=None)
         assert job.job_id in job_summary.build_search_text(job)
+
+
+class TestVariablePrecisionTimestamps:
+    """サーバは小数秒を可変長で返す。Python 3.9 はそれを読めない。
+
+    実害（利用者の環境で 47 件中 9 件が該当）:
+    カードの投入日時が ``2026-09-01T04:22:52.74747Z`` のまま出る、所要時間が
+    空になる、一覧の並びで日付を無視して末尾に落ちる、保持期間を過ぎても
+    消えない。原因は ``datetime.fromisoformat`` が **3 桁か 6 桁の小数秒しか
+    受け付けない**こと（QGIS LTR は Python 3.9）。サーバは末尾のゼロを落とす
+    ため 5 桁で返ることがある。
+    """
+
+    @pytest.mark.parametrize(
+        "stamp",
+        [
+            "2026-09-01T04:22:52.74747Z",  # 5 桁 — 実際に返ってくる形
+            "2026-09-01T04:22:52.7Z",  # 1 桁
+            "2026-09-01T04:22:52.74Z",  # 2 桁
+            "2026-09-01T04:22:52.747Z",  # 3 桁
+            "2026-09-01T04:22:52.7474Z",  # 4 桁
+            "2026-09-01T04:22:52.747470Z",  # 6 桁
+            "2026-09-01T04:22:52.7474701Z",  # 7 桁（切り捨てる）
+            "2026-09-01T04:22:52Z",  # 小数なし
+            "2026-09-01T04:22:52.74747+00:00",  # オフセット表記
+        ],
+    )
+    def test_every_precision_parses(self, stamp):
+        parsed = job_summary.parse_iso8601(stamp)
+        assert parsed is not None, stamp
+        assert (parsed.year, parsed.month, parsed.day) == (2026, 9, 1)
+        assert (parsed.hour, parsed.minute, parsed.second) == (4, 22, 52)
+
+    def test_the_card_shows_a_date_not_the_raw_string(self):
+        shown = job_summary.format_submitted_short("2026-09-01T04:22:52.74747Z")
+        assert "T" not in shown and "Z" not in shown, shown
+
+    def test_still_returns_none_for_things_that_are_not_timestamps(self):
+        for junk in ("", "not a date", "2026-13-45T99:99:99Z", None):
+            assert job_summary.parse_iso8601(junk) is None, junk
