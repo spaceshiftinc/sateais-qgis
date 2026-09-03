@@ -174,15 +174,22 @@ def format_relative(delta: timedelta) -> str:
 def build_request_summary(job: TrackedJob) -> str:
     """One line saying what was asked for, or ``""`` when nothing is known.
 
+    **The dates are labelled.** A card carries two kinds of date — when the job
+    was submitted, and the span of imagery it asked for — and unlabelled they
+    render identically. The submitted date is what the list is ordered by, so
+    when the request date is the one that reads first, the ordering looks
+    arbitrary. Naming this one keeps the two apart.
+
     Callers hide the line entirely on an empty string, so a job whose request
     context was never captured does not leave a gap in the card.
     """
     if job.date_start and job.date_end:
-        return f"{job.date_start} → {job.date_end}"
+        return f"Period {job.date_start} → {job.date_end}"
     if job.scene_id:
         return f"Scene {format_scene_id(job.scene_id)}"
     if job.date:
-        return job.date
+        # ship / oilslick の基準日。裸で置くと投入日と見分けが付かない
+        return f"Reference date {job.date}"
     return ""
 
 

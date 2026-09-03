@@ -111,13 +111,14 @@ class JobCard(QFrame):
         self.finds_row.setVisible(False)
         grid.addWidget(finds_row, 0, 2, Qt.AlignmentFlag.AlignRight)
 
-        # 2 行目 = いつ・どの状態。1 行目と軸を分けることで、名前も件数も
-        # 状態も省略せずに置ける
-        self.request_label = QLabel("")
-        self.request_label.setObjectName("SubtitleLabel")
-        self.request_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.request_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        grid.addWidget(self.request_label, 1, 1)
+        # 2 行目 = いつ・どの状態。**ここに出すのは投入日時**で、一覧はこの順に
+        # 並んでいる。並びの基準が最初に読める位置に無いと、順番が意味不明に
+        # 見える（要求した期間はラベル付きで下の行へ回す）
+        self.submitted_label = QLabel("")
+        self.submitted_label.setObjectName("SubtitleLabel")
+        self.submitted_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.submitted_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        grid.addWidget(self.submitted_label, 1, 1)
 
         self.status_badge = QLabel("")
         self.status_badge.setObjectName("PillMuted")
@@ -125,27 +126,35 @@ class JobCard(QFrame):
         self.status_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         grid.addWidget(self.status_badge, 1, 2, Qt.AlignmentFlag.AlignRight)
 
+        # 要求した内容（期間 / 基準日 / シーン）。投入日時とは別物なのでラベル付き
+        self.request_label = QLabel("")
+        self.request_label.setObjectName("JobMeta")
+        self.request_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.request_label.setWordWrap(True)
+        self.request_label.setMinimumWidth(0)
+        grid.addWidget(self.request_label, 2, 1, 1, 2)
+
         self.meta_label = QLabel("")
         self.meta_label.setObjectName("JobMeta")
         # 見出し付きなので 1 行には収まらない。折り返して全部見せる
         self.meta_label.setTextFormat(Qt.TextFormat.RichText)
         self.meta_label.setWordWrap(True)
         self.meta_label.setMinimumWidth(0)
-        grid.addWidget(self.meta_label, 2, 1, 1, 2)
+        grid.addWidget(self.meta_label, 3, 1, 1, 2)
 
         # ID は 36 桁。数字の行に混ぜると読む値を押し出すので、独立した行に置き、
         # 一番弱い色にして「控えるときだけ見る」ものにする。選択してコピーできる
         self.id_label = QLabel("")
         self.id_label.setObjectName("JobId")
         self.id_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        grid.addWidget(self.id_label, 3, 1, 1, 2)
+        grid.addWidget(self.id_label, 4, 1, 1, 2)
 
         self.error_label = QLabel("")
         self.error_label.setObjectName("StatusError")
         self.error_label.setTextFormat(Qt.TextFormat.PlainText)
         self.error_label.setWordWrap(True)
         self.error_label.setVisible(False)
-        grid.addWidget(self.error_label, 4, 1, 1, 2)
+        grid.addWidget(self.error_label, 5, 1, 1, 2)
 
         self.loading_row = QWidget()
         loading = QHBoxLayout(self.loading_row)
@@ -158,7 +167,7 @@ class JobCard(QFrame):
         loading.addWidget(self.loading_label)
         loading.addStretch()
         self.loading_row.setVisible(False)
-        grid.addWidget(self.loading_row, 5, 1, 1, 2)
+        grid.addWidget(self.loading_row, 6, 1, 1, 2)
 
     # --- public API ----------------------------------------------------------
 
@@ -239,6 +248,11 @@ class JobCard(QFrame):
 
     def _refresh_request(self) -> None:
         """Render the request line and the full-detail tooltip."""
+        # 並びの基準（投入日時）を上段に、要求した内容を下段に
+        submitted = job_summary.format_submitted_short(self._job.submitted_at)
+        self.submitted_label.setText(submitted)
+        self.submitted_label.setVisible(bool(submitted))
+
         summary = job_summary.build_request_summary(self._job)
         self.request_label.setText(summary)
         self.request_label.setVisible(bool(summary))
@@ -246,7 +260,7 @@ class JobCard(QFrame):
         # 値には必ず見出しを付ける。単位だけでは「3m 31s」が待ち時間なのか
         # 実行時間なのか、「1.96」が使った分なのか残りなのかが読めない
         fields = wording.job_meta_fields(
-            job_summary.format_submitted_short(self._job.submitted_at),
+            "",  # 投入日時は上段に出したので、ここでは繰り返さない
             self._job.area_sqkm,
             self._job.credits_used,
             wording.took_label(self._job.submitted_at, self._job.completed_at),

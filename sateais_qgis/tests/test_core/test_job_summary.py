@@ -134,17 +134,35 @@ class TestFormatRelative:
 
 
 class TestBuildRequestSummary:
-    def test_date_range(self):
+    """要求した日付には必ずラベルを付ける。
+
+    カードには 2 種類の日付が載る — 投入した日時と、要求した画像の期間。
+    裸で置くと同じ見た目になり、一覧が投入日時順に並んでいるのに先に読まれるのは
+    要求日のほうになるので、並び順が意味不明に見える。
+    """
+
+    def test_a_period_says_it_is_a_period(self):
         job = StubJob(date_start="2026-01-03", date_end="2026-07-03")
-        assert job_summary.build_request_summary(job) == "2026-01-03 → 2026-07-03"
+        assert job_summary.build_request_summary(job) == "Period 2026-01-03 → 2026-07-03"
 
     def test_scene_mode(self):
         job = StubJob(analysis_type="ship", scene_id=SCENE_ID)
         assert job_summary.build_request_summary(job) == "Scene S1A 2026-01-01"
 
-    def test_polygon_plus_date_mode(self):
+    def test_a_single_date_is_never_left_bare(self):
+        """ship / oilslick の基準日。裸の日付は投入日と見分けが付かない。"""
         job = StubJob(analysis_type="ship", date="2026-01-01")
-        assert job_summary.build_request_summary(job) == "2026-01-01"
+        assert job_summary.build_request_summary(job) == "Reference date 2026-01-01"
+
+    def test_every_rendered_form_carries_a_word(self):
+        """どの経路で組まれても、日付だけの行にはならないこと。"""
+        for job in (
+            StubJob(date_start="2026-01-03", date_end="2026-07-03"),
+            StubJob(analysis_type="ship", scene_id=SCENE_ID),
+            StubJob(analysis_type="ship", date="2026-01-01"),
+        ):
+            summary = job_summary.build_request_summary(job)
+            assert summary[0].isalpha(), summary
 
     def test_nothing_known_is_empty_so_the_line_can_be_hidden(self):
         assert job_summary.build_request_summary(StubJob()) == ""

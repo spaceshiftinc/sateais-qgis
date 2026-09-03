@@ -144,8 +144,31 @@ def _write(jobs: list[TrackedJob]) -> None:
 
 
 def list_all() -> list[TrackedJob]:
-    """Return all tracked jobs, newest first."""
-    return _read()
+    """Return all tracked jobs, newest first.
+
+    **Sorted here rather than relying on the stored order.** Local submits are
+    prepended and a sync inserts in its own order, so what is on disk drifts out
+    of sequence the more the plugin is used — one real store had a job from
+    08-24 sitting below the 08-19 block. A list whose order cannot be stated is
+    a list nobody can read.
+
+    Timestamps arrive in mixed forms (``…Z`` and ``…+00:00``), so they are
+    compared as datetimes, not as strings. Records whose timestamp cannot be
+    read keep their relative order at the end — never dropped, because losing a
+    job is worse than showing it late.
+    """
+    jobs = _read()
+    readable: list[tuple[datetime, int, TrackedJob]] = []
+    unreadable: list[TrackedJob] = []
+    for index, job in enumerate(jobs):
+        parsed = job_summary.parse_iso8601(job.submitted_at)
+        if parsed is None:
+            unreadable.append(job)
+        else:
+            # index はタイの安定化用。同じ時刻でも並びが跳ねないようにする
+            readable.append((parsed, index, job))
+    readable.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return [job for _, _, job in readable] + unreadable
 
 
 def add(
