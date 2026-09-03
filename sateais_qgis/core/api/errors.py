@@ -46,6 +46,21 @@ class NotFoundError(APIError):
     """
 
 
+class UnsupportedResultFormatError(SateAIsError):
+    """The job succeeded, but its result is not GeoJSON.
+
+    Some detection types answer ``/result.geojson`` with **200 and a non-JSON
+    body** (a ZIP archive, say) rather than an error, so this is not an HTTP
+    failure — it is a successful response this client cannot render. The format
+    is read from the response's own ``Content-Type``, which keeps the rule out
+    of any hardcoded list of detection types.
+    """
+
+    def __init__(self, content_type: str) -> None:
+        self.content_type = content_type
+        super().__init__(f"result is {content_type or 'not JSON'}, not GeoJSON")
+
+
 class ConflictError(APIError):
     """Resource is not in a state that allows the operation (HTTP 409)."""
 

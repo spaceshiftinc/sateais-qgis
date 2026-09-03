@@ -6,7 +6,7 @@ import io
 import json
 import socket
 import urllib.error
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +20,7 @@ from sateais_qgis.core.api.errors import (
     PermissionDeniedError,
     RateLimitError,
     ServerError,
+    UnsupportedResultFormatError,
     ValidationError,
 )
 from sateais_qgis.core.api.http import (
@@ -34,13 +35,38 @@ from sateais_qgis.core.api.types import (
 )
 
 
+class _Response:
+    """Stand-in for the urlopen context manager.
+
+    Carries **real headers**: the client decides whether a body is JSON from
+    ``Content-Type``, and a MagicMock answers every header lookup with a truthy
+    mock, which made that check pass for the wrong reason.
+    """
+
+    def __init__(self, body: bytes, content_type: str = "application/json", status: int = 200):
+        self.body = body
+        self.status = status
+        self.headers = {"Content-Type": content_type} if content_type else {}
+        self.read_calls = 0
+
+    def read(self, *_args):
+        self.read_calls += 1
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return None
+
+
+def _response(body: bytes, content_type: str = "application/json") -> _Response:
+    return _Response(body, content_type)
+
+
 def _mock_response(body_dict, status: int = 200):
-    """Return a mock that behaves like the urlopen context manager."""
-    mock = MagicMock()
-    mock.read.return_value = json.dumps(body_dict).encode("utf-8")
-    mock.__enter__.return_value = mock
-    mock.__exit__.return_value = None
-    return mock
+    """Return a response stub carrying ``body_dict`` as JSON."""
+    return _Response(json.dumps(body_dict).encode("utf-8"), status=status)
 
 
 def _http_error(status: int, body_dict, reason: str = "error"):
@@ -487,3 +513,83 @@ class TestJobFromDictRobustness:
     def test_empty_string_job_id_raises_apierror(self):
         with pytest.raises(APIError):
             _job_from_dict({"job_id": "", "status": "pending"})
+
+
+class TestGlobalState:
+    """プラグインはプロセス全体の状態を書き換えない。
+
+    同じ QGIS の中では全プラグインが 1 つのインタプリタを共有する。
+    ``urllib.request.install_opener()`` で既定 opener を差し替えると、プロキシや
+    独自認証ハンドラを入れている他プラグインの ``urlopen()`` を、後から読み込ま
+    れた側が黙って上書きしてしまう。このクライアントは自分の opener を直接使う
+    ので、全体を書き換える必要はない。
+    """
+
+    def test_importing_the_client_does_not_replace_the_default_opener(self):
+        import importlib
+        import urllib.request
+
+        from sateais_qgis.core.api import http as http_module
+
+        sentinel = urllib.request.build_opener()
+        urllib.request.install_opener(sentinel)
+        try:
+            # 取り込み直しても、他が入れた opener が残っていること
+            importlib.reload(http_module)
+            assert urllib.request._opener is sentinel
+        finally:
+            urllib.request.install_opener(None)
+            importlib.reload(http_module)
+
+
+class TestNonJsonResult:
+    """GeoJSON ではない結果を、失敗ではなく「別形式」として区別する。
+
+    ``/result.geojson`` は、地図に置けない形式の検出でも **200 を返し、本文だけ
+    が別形式**（ZIP など）になる。HTTP エラーが無いので、応答の Content-Type
+    以外に手がかりが無い。検出種別のハードコード表を持たずに済む唯一の判定で
+    もある。本文を読む前に弾くので、数十 MB を落としてから捨てることもない。
+    """
+
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
+    def test_zip_body_is_not_a_failed_request(self, mock_open):
+        mock_open.return_value = _response(b"PK\x03\x04nope", content_type="application/zip")
+        client = UrllibApiClient(api_key="sk_test")
+        with pytest.raises(UnsupportedResultFormatError) as excinfo:
+            client.get_job_result("job-1")
+        assert excinfo.value.content_type == "application/zip"
+
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
+    def test_the_body_is_never_read(self, mock_open):
+        """形式が違うと分かった時点で止める（結果は 76 MB になることがある）。"""
+        resp = _response(b"PK\x03\x04nope", content_type="application/zip")
+        mock_open.return_value = resp
+        client = UrllibApiClient(api_key="sk_test")
+        with pytest.raises(UnsupportedResultFormatError):
+            client.get_job_result("job-1")
+        assert resp.read_calls == 0
+
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
+    def test_geojson_still_loads(self, mock_open):
+        mock_open.return_value = _response(
+            b'{"type": "FeatureCollection", "features": []}',
+            content_type="application/geo+json",
+        )
+        client = UrllibApiClient(api_key="sk_test")
+        assert client.get_job_result("job-1")["type"] == "FeatureCollection"
+
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
+    def test_a_missing_content_type_is_not_treated_as_a_rejection(self, mock_open):
+        """ヘッダが無いだけで開けなくなるのは厳しすぎる。従来どおり解析を試す。"""
+        mock_open.return_value = _response(b'{"type": "FeatureCollection"}', content_type="")
+        client = UrllibApiClient(api_key="sk_test")
+        assert client.get_job_result("job-1")["type"] == "FeatureCollection"
+
+    @patch("sateais_qgis.core.api.http._AUTH_STRIPPING_OPENER.open")
+    def test_other_endpoints_are_unaffected(self, mock_open):
+        """判定を掛けるのは結果取得だけ。ほかは今までどおり。"""
+        mock_open.return_value = _response(
+            b'{"job_id": "j", "status": "completed"}', content_type="text/plain"
+        )
+        client = UrllibApiClient(api_key="sk_test")
+        assert client.get_job("j").job_id == "j"

@@ -6,7 +6,7 @@ import contextlib
 import traceback
 
 from qgis.core import Qgis, QgsApplication, QgsMessageLog
-from qgis.PyQt.QtCore import QCoreApplication, Qt, pyqtSignal
+from qgis.PyQt.QtCore import QCoreApplication, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,7 +19,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ...core import job_summary, job_tracker, layer_loader, result_stats
 from ...workers.lifecycle import detach_worker
-from ...workers.poll_job_task import ABANDON_EXPIRED, PollJobsTask
+from ...workers.poll_job_task import ABANDON_EXPIRED, ABANDON_GONE, PollJobsTask
 from ...workers.result_loader import (
     ERROR_AUTH_FAILED,
     ERROR_AUTH_NOT_CONFIGURED,
@@ -29,6 +29,7 @@ from ...workers.result_loader import (
     ERROR_NOT_FOUND,
     ERROR_PERMISSION_DENIED,
     ERROR_SERVER_ERROR,
+    ERROR_UNSUPPORTED_FORMAT,
     ResultLoaderWorker,
 )
 from ...workers.sync_jobs import SyncJobsWorker
@@ -45,6 +46,11 @@ _RESULT_ERROR_MESSAGES: dict[str, str] = {
     ERROR_PERMISSION_DENIED: "Your account no longer has access to this result.",
     ERROR_NOT_FOUND: "Result not found. The job may have been removed on the server.",
     ERROR_GONE: "This result has expired and is no longer available.",
+    # 種別を名指ししない。QGIS が地図に置ける形式かどうかだけが基準
+    ERROR_UNSUPPORTED_FORMAT: (
+        "This result is not a map layer, so it cannot be opened in QGIS. "
+        "Open it in the console to download it."
+    ),
     ERROR_JOB_NOT_COMPLETED: ("The job is not completed yet. Please wait a moment and try again."),
     ERROR_SERVER_ERROR: "The server is temporarily unavailable. Please try again later.",
     ERROR_NETWORK_ERROR: "No network connection. Please check your internet.",
@@ -64,6 +70,8 @@ class JobsPanel(QWidget):
         super().__init__(parent)
         self.iface = iface
         self._cards: dict[str, JobCard] = {}
+        # サーバが知らないジョブ。まとめて 1 通知にするため貯める
+        self._forgotten: list[str] = []
         self._poll_task: PollJobsTask | None = None
         # Result-fetch workers keyed by job_id so multiple Load-on-Map clicks
         # can run in parallel without stepping on each other. Freed when the
@@ -145,53 +153,48 @@ class JobsPanel(QWidget):
         outer.setSpacing(10)
 
         header = QHBoxLayout()
-        title = QLabel(self.tr("Tracked Jobs"))
+        title = QLabel(self.tr("Jobs"))
         title.setObjectName("TitleLabel")
         header.addWidget(title)
         header.addStretch()
 
-        self.sync_button = QPushButton(self.tr("Sync"))
-        self.sync_button.setObjectName("GhostButton")
-        self.sync_button.setToolTip(
-            self.tr("Import your recent jobs from the server (console / CLI submissions).")
-        )
-        self.sync_button.clicked.connect(self._on_sync_clicked)
-        header.addWidget(self.sync_button)
-
+        # ボタンは 1 つだけ。Sync（サーバからの取り込み）と Refresh（進行中の
+        # 再ポーリング）は利用者から見て同じ「最新にする」なので分けない
         self.refresh_button = QPushButton(self.tr("Refresh"))
-        self.refresh_button.setObjectName("GhostButton")
-        self.refresh_button.clicked.connect(self._restart_polling)
+        self.refresh_button.setObjectName("Chip")
+        self.refresh_button.clicked.connect(self._on_refresh_clicked)
         header.addWidget(self.refresh_button)
         outer.addLayout(header)
 
+        # ID は 36 桁。打ち切る人はいないので、部分一致で打った端から絞り込む。
+        # 種別名・シーン ID・日付も同じ箱で引ける（core.job_summary の haystack）
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText(self.tr("Search by job ID, type, scene, or date…"))
+        self.search_edit.setObjectName("Chip")
+        self.search_edit.setPlaceholderText(self.tr("Search jobs — ID, type, scene, date"))
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.textChanged.connect(self._apply_search_filter)
-        outer.addWidget(self.search_edit)
+        self.search_edit.textChanged.connect(self._apply_search)
+        search_row.addWidget(self.search_edit)
+        # 絞り込みが効いていることが常に見えていないと、「ジョブが消えた」になる
+        self.match_count_label = QLabel("")
+        self.match_count_label.setObjectName("HintLabel")
+        self.match_count_label.setVisible(False)
+        search_row.addWidget(self.match_count_label)
+        outer.addLayout(search_row)
 
-        # Shown only while some card is missing its request details. The jobs API
-        # returns those on the list endpoint only, so Sync is the one way to fill
-        # them in — this makes that discoverable instead of hoping the user tries
-        # the button. Disappears by itself once every card is resolved.
-        self.sync_hint_label = QLabel(
-            self.tr("Older jobs are missing their request details — press Sync to fetch them.")
-        )
-        self.sync_hint_label.setObjectName("HintLabel")
-        self.sync_hint_label.setWordWrap(True)
-        self.sync_hint_label.setVisible(False)
-        outer.addWidget(self.sync_hint_label)
+        # 「まだ 1 件も無い」と「条件に合うものが無い」は別の状態。
+        # 同じ文言にすると、絞り込んだだけなのに消えたと読まれる
+        self.no_match_label = QLabel(self.tr("No jobs match this search."))
+        self.no_match_label.setObjectName("HintLabel")
+        self.no_match_label.setWordWrap(True)
+        self.no_match_label.setVisible(False)
+        outer.addWidget(self.no_match_label)
 
         # Cosmic empty state (starfield + CTA) shown when there are no jobs.
         self.empty_state = EmptyState()
         self.empty_state.start_requested.connect(self.start_analysis_requested)
         outer.addWidget(self.empty_state, 1)
-
-        self.no_match_label = QLabel(self.tr("No jobs match your search."))
-        self.no_match_label.setObjectName("HintLabel")
-        self.no_match_label.setWordWrap(True)
-        self.no_match_label.setVisible(False)
-        outer.addWidget(self.no_match_label)
 
         scroll = QScrollArea()
         scroll.setObjectName("JobsScroll")
@@ -201,7 +204,9 @@ class JobsPanel(QWidget):
         self._list_container = QWidget()
         self._list_layout = QVBoxLayout(self._list_container)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
-        self._list_layout.setSpacing(8)
+        # カード同士は下罫線で区切る。隙間まで空けると、内側が詰まっているのに
+        # 外側だけ離れて見える（MCP の .row と同じ、内に余白・外は連続）
+        self._list_layout.setSpacing(0)
         self._list_layout.addStretch()
         scroll.setWidget(self._list_container)
         outer.addWidget(scroll, 1)
@@ -218,7 +223,6 @@ class JobsPanel(QWidget):
         self._insert_card(job)
         self._ensure_polling([job_id])
         self._refresh_empty_state()
-        self._refresh_sync_hint()
 
     # --- internal ------------------------------------------------------------
 
@@ -233,42 +237,41 @@ class JobsPanel(QWidget):
         if pending:
             self._ensure_polling(pending)
         self._refresh_empty_state()
-        self._refresh_sync_hint()
-
-    def _refresh_sync_hint(self) -> None:
-        """Offer Sync only while at least one card has unresolved request details."""
-        unresolved = any(not card.job.request_source for card in self._cards.values())
-        self.sync_hint_label.setVisible(unresolved)
 
     def _insert_card(self, job, prepend: bool = True) -> None:
         if job.job_id in self._cards:
             return
         card = JobCard(job, parent=self._list_container)
         card.load_requested.connect(self._on_load_requested)
-        card.remove_requested.connect(self._on_remove_requested)
         card.aoi_preview_requested.connect(self._on_aoi_preview_requested)
-        card.id_copied.connect(self._on_id_copied)
         self._cards[job.job_id] = card
         # The stretch lives at index `count - 1`; insert above it.
         insert_at = 0 if prepend else max(0, self._list_layout.count() - 1)
         self._list_layout.insertWidget(insert_at, card)
-        self._apply_search_filter(self.search_edit.text())
+        self._apply_search()
+
+    def _apply_search(self, text: str = "") -> None:
+        """Show only the cards matching the query. Runs on every keystroke.
+
+        Two things keep this cheap as the list grows: each card's haystack is
+        built once (not per keystroke), and ``setVisible`` is only called when
+        the answer actually changes — a redundant call still invalidates the
+        layout, which is the expensive part, not the string compare.
+        """
+        query = (text or self.search_edit.text()).strip().lower()
+        shown = 0
+        for card in self._cards.values():
+            match = (not query) or (query in card.search_text)
+            if card.isVisibleTo(self) != match:
+                card.setVisible(match)
+            shown += match
+        total = len(self._cards)
+        self.match_count_label.setText(f"{shown} / {total}")
+        self.match_count_label.setVisible(bool(query) and total > 0)
+        self.no_match_label.setVisible(bool(query) and total > 0 and shown == 0)
 
     def _refresh_empty_state(self) -> None:
         self.empty_state.setVisible(not self._cards)
-        if not self._cards:
-            self.no_match_label.setVisible(False)
-
-    def _apply_search_filter(self, text: str) -> None:
-        query = text.strip().lower()
-        any_visible = False
-        for card in self._cards.values():
-            haystack = job_summary.build_search_text(card.job)
-            match = (not query) or (query in haystack)
-            card.setVisible(match)
-            if match:
-                any_visible = True
-        self.no_match_label.setVisible(bool(self._cards) and bool(query) and not any_visible)
 
     # --- polling -------------------------------------------------------------
 
@@ -316,10 +319,11 @@ class JobsPanel(QWidget):
         {"ship", "oilslick", "newbuilding", "disappearbuilding", "timeseries"}
     )
 
-    def _on_sync_clicked(self) -> None:
+    def _on_refresh_clicked(self) -> None:
+        """Pull the latest jobs from the server, then re-arm polling."""
         if self._sync_worker is not None:
             return
-        self.sync_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
         worker = SyncJobsWorker(parent=self)
         worker.finished_signal.connect(self._on_sync_finished)
         worker.finished.connect(worker.deleteLater)
@@ -334,7 +338,7 @@ class JobsPanel(QWidget):
                 worker.finished_signal.disconnect(self._on_sync_finished)
             except (TypeError, RuntimeError):
                 pass
-        self.sync_button.setEnabled(True)
+        self.refresh_button.setEnabled(True)
 
         if not ok or not isinstance(jobs, list):
             message = _RESULT_ERROR_MESSAGES.get(
@@ -363,7 +367,13 @@ class JobsPanel(QWidget):
             if job_id := job.job_id:
                 if job_id in self._cards:
                     tracked = job_tracker.update_status(
-                        job_id, status, job.error_code, job.error_message
+                        job_id,
+                        status,
+                        job.error_code,
+                        job.error_message,
+                        completed_at=job.completed_at,
+                        area_sqkm=job.area_sqkm,
+                        credits_used=job.credits_used,
                     )
                     if tracked is not None:
                         card = self._cards[job_id]
@@ -383,7 +393,15 @@ class JobsPanel(QWidget):
                         request=job.request_params,
                         request_source=source,
                     )
-                    job_tracker.update_status(job_id, status, job.error_code, job.error_message)
+                    job_tracker.update_status(
+                        job_id,
+                        status,
+                        job.error_code,
+                        job.error_message,
+                        completed_at=job.completed_at,
+                        area_sqkm=job.area_sqkm,
+                        credits_used=job.credits_used,
+                    )
                     self._insert_card(tracked)
                     imported += 1
                 if status in {"pending", "processing"}:
@@ -391,9 +409,8 @@ class JobsPanel(QWidget):
         if active:
             self._ensure_polling(active)
         self._refresh_empty_state()
-        self._refresh_sync_hint()
 
-        summary = self.tr(f"Sync complete — {imported} imported, {updated} updated.")
+        summary = self.tr(f"Refreshed — {imported} new, {updated} updated.")
         if skipped:
             summary += self.tr(f" {skipped} unsupported job(s) skipped.")
         self.iface.messageBar().pushMessage(
@@ -446,13 +463,20 @@ class JobsPanel(QWidget):
         """The poll task gave up on this job without a terminal state.
 
         The job may still be running server-side, so it is marked "unknown"
-        (not "failed") and Refresh re-arms tracking for it.
+        (not "failed") and Refresh re-arms tracking for it — except when the
+        server says the job is gone, which Refresh cannot change.
         """
         job_tracker.update_status(job_id, "unknown")
         card = self._cards.get(job_id)
         if card is not None:
             card.set_status("unknown")
         short_id = f"{job_id[:8]}…" if len(job_id) > 8 else job_id
+        if reason == ABANDON_GONE:
+            # ジョブのメタデータはサーバ側で永久保持される（保持期限があるのは
+            # 結果ファイルだけ）。したがって status の 404 は「このアカウントに
+            # 無いジョブ」であって、待てば直るものではない。一覧から取り除く
+            self._forget_job(job_id)
+            return
         if reason == ABANDON_EXPIRED:
             message = self.tr(
                 f"Stopped tracking job {short_id} after 24 hours. "
@@ -470,6 +494,41 @@ class JobsPanel(QWidget):
             duration=8,
         )
 
+    def _forget_job(self, job_id: str) -> None:
+        """Drop a job the server does not know about, from the list and the store.
+
+        These are ids that never belonged to this account — a key swapped between
+        environments, or entries written by something other than a real submit.
+        Leaving them behind means the same warning on every Refresh, forever, for
+        a job the user cannot act on.
+        """
+        job_tracker.remove(job_id)
+        card = self._cards.pop(job_id, None)
+        if card is not None:
+            self._list_layout.removeWidget(card)
+            card.setParent(None)
+            card.deleteLater()
+        # 地図に出ているのがこのジョブの範囲なら、それも一緒に消える必要がある
+        # （受け手は dock の _on_job_removed）
+        self.job_removed.emit(job_id)
+        self._forgotten.append(job_id)
+        # 6 件まとめて消えることもある。1 件ずつ通知すると画面が埋まる
+        QTimer.singleShot(0, self._flush_forgotten)
+
+    def _flush_forgotten(self) -> None:
+        count = len(self._forgotten)
+        if not count:
+            return
+        self._forgotten.clear()
+        self._apply_search()
+        self.iface.messageBar().pushMessage(
+            "SateAIs",
+            self.tr(f"Removed {count} job(s) from this list: they are not on your account."),
+            level=Qgis.MessageLevel.Info,
+            duration=6,
+        )
+        self._refresh_empty_state()
+
     def _on_job_failed(self, job_id: str, error_code: str, error_message: str) -> None:
         job_tracker.update_status(
             job_id, "failed", error_code=error_code or None, error_message=error_message or None
@@ -485,25 +544,6 @@ class JobsPanel(QWidget):
             self.aoi_preview_unavailable.emit(job_id)
             return
         self.aoi_preview_requested.emit(job_id, polygon_wkt)
-
-    def _on_id_copied(self, job_id: str) -> None:
-        self.iface.messageBar().pushMessage(
-            "SateAIs",
-            self.tr(f"Job ID copied to clipboard: {job_id}"),
-            level=Qgis.MessageLevel.Info,
-            duration=3,
-        )
-
-    def _on_remove_requested(self, job_id: str) -> None:
-        job_tracker.remove(job_id)
-        card = self._cards.pop(job_id, None)
-        if card is not None:
-            self._list_layout.removeWidget(card)
-            card.deleteLater()
-        self.job_removed.emit(job_id)
-        self._refresh_empty_state()
-        self._refresh_sync_hint()
-        self._apply_search_filter(self.search_edit.text())
 
     def _on_load_requested(self, job_id: str) -> None:
         """Kick off the background fetch for a completed job's GeoJSON.

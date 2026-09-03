@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 if pyqgis_available:
-    from sateais_qgis.core.api.errors import AuthenticationError
+    from sateais_qgis.core.api.errors import AuthenticationError, NotFoundError
     from sateais_qgis.core.api.types import Job, JobStatus
     from sateais_qgis.core.client_factory import AuthNotConfiguredError
     from sateais_qgis.workers import poll_job_task
@@ -231,3 +231,50 @@ class TestPollJobsTask:
         assert task.run() is True
         assert abandoned == [("a", poll_job_task.ABANDON_EXPIRED)]
         assert task.has_pending() is False
+
+    def test_missing_job_is_abandoned_on_the_first_poll(self, monkeypatch, silence_sleep):
+        """A job that no longer exists is not a transient blip.
+
+        Results are deleted after the retention period, so ``status`` answers
+        404/410 forever. Spending the five-error budget on it — and then telling
+        the user to press Refresh — asks them to repeat something that cannot
+        succeed. Stop on the first answer, and say the job is gone.
+        """
+
+        class CountingJobs:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def status(self, job_id: str) -> Job:
+                self.calls += 1
+                raise NotFoundError(410, "GONE", "result deleted")
+
+        jobs = CountingJobs()
+        client = FakeClient(FakeJobs({}))
+        client.jobs = jobs
+        _install_build_client(monkeypatch, client)
+
+        task = PollJobsTask(["a"])
+        abandoned: list[tuple[str, str]] = []
+        task.job_poll_abandoned.connect(lambda jid, reason: abandoned.append((jid, reason)))
+
+        assert task.run() is True
+        assert abandoned == [("a", poll_job_task.ABANDON_GONE)]
+        assert jobs.calls == 1, "a permanent answer must not be retried"
+        assert task.has_pending() is False
+
+    def test_one_missing_job_does_not_stop_the_others(self, monkeypatch, silence_sleep):
+        """Dropping the gone job must leave the rest of the set polling."""
+        jobs = FakeJobs({"b": [Job(job_id="b", status=JobStatus.COMPLETED)]})
+        jobs.exceptions["a"] = NotFoundError(404, "NOT_FOUND", "no such job")
+        _install_build_client(monkeypatch, FakeClient(jobs))
+
+        task = PollJobsTask(["a", "b"])
+        abandoned: list[tuple[str, str]] = []
+        completed: list[str] = []
+        task.job_poll_abandoned.connect(lambda jid, reason: abandoned.append((jid, reason)))
+        task.job_completed.connect(lambda jid: completed.append(jid))
+
+        assert task.run() is True
+        assert abandoned == [("a", poll_job_task.ABANDON_GONE)]
+        assert completed == ["b"]

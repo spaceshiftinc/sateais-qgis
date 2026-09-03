@@ -27,12 +27,17 @@ SCENE_ID = "S1A_IW_GRDH_1SDV_20260101T123456_20260101T123521_051234_062ABC_1234"
 
 class TestFormatAnalysisLabel:
     def test_known_types(self):
-        assert job_summary.format_analysis_label("timeseries") == "Time Series"
-        assert job_summary.format_analysis_label("disappearbuilding") == "Disappeared Building"
+        # 呼び名は MCP ウィジェット (kindLabel) = 公開ドキュメントの見出しと同じ。
+        # 画面ごとに言い換えると、利用者が読むドキュメントと食い違う
+        assert job_summary.format_analysis_label("timeseries") == "Time-series change"
+        assert (
+            job_summary.format_analysis_label("disappearbuilding")
+            == "Disappeared building detection"
+        )
 
     def test_unknown_type_falls_back_to_the_raw_value(self):
         # Synced jobs can carry an endpoint_id this version has never heard of.
-        assert job_summary.format_analysis_label("idlefarm") == "idlefarm"
+        assert job_summary.format_analysis_label("something-new") == "something-new"
 
     def test_empty(self):
         assert job_summary.format_analysis_label("") == ""
@@ -45,7 +50,7 @@ class TestFormatDetectionSummary:
         assert job_summary.format_detection_summary("timeseries", 7) == "7 changes"
 
     def test_unknown_type_uses_a_generic_noun(self):
-        assert job_summary.format_detection_summary("idlefarm", 2) == "2 detections"
+        assert job_summary.format_detection_summary("something-new", 2) == "2 detections"
 
 
 class TestFormatSceneId:
@@ -181,7 +186,7 @@ class TestBuildSearchText:
         haystack = job_summary.build_search_text(job)
         assert job.job_id in haystack  # the card only shows the first 8 chars
         assert "timeseries" in haystack
-        assert "time series" in haystack
+        assert "time-series change" in haystack
         assert "2026-01-03" in haystack
 
     def test_includes_the_scene_id(self):
@@ -191,3 +196,90 @@ class TestBuildSearchText:
     def test_is_lower_cased(self):
         haystack = job_summary.build_search_text(StubJob())
         assert haystack == haystack.lower()
+
+
+class TestDetectionOutcome:
+    """数だけでは何を数えたか分からない。名詞まで言い切る。"""
+
+    def test_names_what_was_counted(self):
+        assert job_summary.format_detection_outcome("newbuilding", 138) == (
+            "138 new buildings found"
+        )
+        assert job_summary.format_detection_outcome("ship", 1) == "1 ship found"
+
+    def test_states_the_empty_case_explicitly(self):
+        """「0」ではなく「見つからなかった」。未取得と区別が付く。"""
+        assert job_summary.format_detection_outcome("ship", 0) == "No ships found"
+
+    def test_groups_thousands(self):
+        assert job_summary.format_detection_outcome("ship", 12345) == "12,345 ships found"
+
+    def test_unknown_type_falls_back_to_a_neutral_noun(self):
+        assert job_summary.format_detection_outcome("something-new", 2) == "2 detections found"
+
+
+class TestDetectionCount:
+    """種別名の右に置く短い形。名詞は繰り返さない。"""
+
+    def test_states_the_count_with_the_verb_only(self):
+        assert job_summary.format_detection_count(138) == "138 found"
+        assert job_summary.format_detection_count(1) == "1 found"
+
+    def test_zero_is_a_word_not_a_digit(self):
+        """「0」は未入力の値にも見える。見つからなかったと言い切る。"""
+        assert job_summary.format_detection_count(0) == "None found"
+
+    def test_groups_thousands(self):
+        assert job_summary.format_detection_count(12345) == "12,345 found"
+
+
+class TestSearchText:
+    """検索は ID の完全一致ではなく、打った端から絞り込める部分一致。
+
+    36 桁を打ち切る人はいない。実際の使い方は「コンソールで見た ID を貼る」か
+    「先週の ship のやつを探す」のどちらかなので、ID・種別・シーン・日付を
+    1 本の文字列にまとめて部分一致で引く。
+    """
+
+    def _job(self, **kw):
+        base = dict(
+            job_id="7cf9025b-a262-491d-9d5e-2ba638448273",
+            analysis_type="newbuilding",
+            submitted_at="2026-09-03T00:12:12Z",
+            date_start="2026-07-26",
+            date_end="2026-09-02",
+        )
+        base.update(kw)
+        return StubJob(**base)
+
+    def test_a_fragment_of_the_id_matches(self):
+        haystack = job_summary.build_search_text(self._job())
+        # 貼り付ける前に数文字打っただけでも絞り込めること
+        for fragment in ("7cf9", "7cf9025b", "a262-491d", "2ba638448273"):
+            assert fragment in haystack, fragment
+
+    def test_the_whole_id_matches(self):
+        job = self._job()
+        assert job.job_id in job_summary.build_search_text(job)
+
+    def test_matches_either_spelling_of_the_type(self):
+        haystack = job_summary.build_search_text(self._job())
+        assert "newbuilding" in haystack
+        assert "new building detection" in haystack
+
+    def test_matches_the_dates_and_the_scene(self):
+        haystack = job_summary.build_search_text(
+            self._job(scene_id="S1A_IW_GRDH_1SDV_20260101T123456_X")
+        )
+        assert "2026-07-26" in haystack
+        assert "s1a_iw_grdh" in haystack
+
+    def test_is_lower_cased_so_matching_can_ignore_case(self):
+        haystack = job_summary.build_search_text(
+            self._job(scene_id="S1A_IW_GRDH_1SDV_20260101T123456_X")
+        )
+        assert haystack == haystack.lower()
+
+    def test_missing_context_does_not_break_the_haystack(self):
+        job = self._job(date_start=None, date_end=None)
+        assert job.job_id in job_summary.build_search_text(job)

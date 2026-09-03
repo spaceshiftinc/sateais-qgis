@@ -33,6 +33,8 @@ ERROR_PERMISSION_DENIED = "PERMISSION_DENIED"
 ERROR_NOT_FOUND = "NOT_FOUND"
 ERROR_GONE = "GONE"
 ERROR_JOB_NOT_COMPLETED = "JOB_NOT_COMPLETED"
+# ジョブは成功しているが、結果が GeoJSON ではない（応答の Content-Type で判定）
+ERROR_UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
 ERROR_SERVER_ERROR = "SERVER_ERROR"
 ERROR_NETWORK_ERROR = "NETWORK_ERROR"
 
@@ -74,6 +76,7 @@ class ResultLoaderWorker(QThread):
             NotFoundError,
             PermissionDeniedError,
             ServerError,
+            UnsupportedResultFormatError,
         )
         from ..core.client_factory import AuthNotConfiguredError, build_client
 
@@ -90,6 +93,11 @@ class ResultLoaderWorker(QThread):
             geojson = client.jobs.result(self._job_id)
             self._log(f"fetched result job_id={self._job_id}", Qgis.MessageLevel.Success)
             self.finished_signal.emit(True, geojson, "")
+        except UnsupportedResultFormatError as e:
+            # 失敗ではない。QGIS がこの形式を地図に置けないだけなので、
+            # 「読み込めませんでした」ではなく開ける場所を案内する
+            self._log(f"result of {self._job_id} is {e.content_type}", Qgis.MessageLevel.Info)
+            self.finished_signal.emit(False, None, ERROR_UNSUPPORTED_FORMAT)
         except AuthenticationError as e:
             self._log_api_error("authentication failed", e)
             self.finished_signal.emit(False, None, ERROR_AUTH_FAILED)
