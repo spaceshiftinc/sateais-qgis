@@ -152,12 +152,11 @@ def load_geojson_as_layer(
         )
 
     fd, path = tempfile.mkstemp(prefix="sateais_", suffix=".geojson")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(geojson, f)
-    except Exception:
-        os.close(fd)
-        raise
+    # fdopen は fd の所有権を受け取るので、with を抜けた時点で閉じている。
+    # ここで os.close(fd) を重ねると、書き込み中に起きた本当の例外
+    # (ディスク不足など) が "Bad file descriptor" に置き換わって消える
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(geojson, f)
 
     layer = QgsVectorLayer(path, layer_name, "ogr")
     if not layer.isValid():

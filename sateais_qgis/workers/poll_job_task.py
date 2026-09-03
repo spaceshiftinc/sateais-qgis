@@ -22,6 +22,9 @@ MAX_TRACKING_SECONDS = 24 * 60 * 60  # give up after 24h; Refresh re-arms it
 # Reasons carried by ``job_poll_abandoned``.
 ABANDON_ERRORS = "errors"
 ABANDON_EXPIRED = "expired"
+# サーバがそのジョブを知らない（404 / 410）。保持期間を過ぎて結果が消えた場合が
+# これで、何度聞いても答えは変わらない
+ABANDON_GONE = "gone"
 
 
 class PollJobsTask(QgsTask):
@@ -76,7 +79,7 @@ class PollJobsTask(QgsTask):
     # --- QgsTask hooks -------------------------------------------------------
 
     def run(self) -> bool:
-        from ..core.api.errors import APIError
+        from ..core.api.errors import APIError, NotFoundError
         from ..core.client_factory import AuthNotConfiguredError, build_client
 
         try:
@@ -102,6 +105,13 @@ class PollJobsTask(QgsTask):
 
                     try:
                         job = client.jobs.status(job_id)
+                    except NotFoundError as e:
+                        # 恒久的な答え。再試行の予算を使い切ってから「Refresh を
+                        # 押せ」と案内すると、成功しない操作を繰り返させることになる
+                        self._log_api_error(f"poll {job_id}", e)
+                        self._drop(job_id)
+                        self.job_poll_abandoned.emit(job_id, ABANDON_GONE)
+                        continue
                     except APIError as e:
                         self._log_api_error(f"poll {job_id}", e)
                         self._register_error(job_id)

@@ -41,9 +41,17 @@ class Job:
     result_path: str | None = None
     error_code: str | None = None
     error_message: str | None = None
-    # Detection type ("ship", "timeseries", …). Only populated by the job-list
-    # endpoint; single-job responses do not include it.
+    # Detection type ("ship", "timeseries", …). Both the job-list and the
+    # single-job endpoints return it (verified against the production API).
     endpoint_id: str | None = None
+    # 解析された実範囲の WKT。**単体取得だけが返す**（一覧には無い）。
+    # これがあれば、ほかのクライアントで投入したジョブでも、ID を知っている
+    # だけで地図に置ける
+    coverage_polygon: str | None = None
+    # 実際に解析された面積と消費クレジット。ジョブ一覧が返す値で、
+    # カードで「どのジョブか」を見分ける手がかりになる
+    area_sqkm: float | None = None
+    credits_used: float | None = None
     # The parameters the job was submitted with, echoed back verbatim. Also
     # list-only, which is why polling can never recover them — Sync is the only
     # way to learn what a job submitted elsewhere actually asked for.
