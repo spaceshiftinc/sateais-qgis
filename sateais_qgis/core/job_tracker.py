@@ -37,6 +37,11 @@ class TrackedJob:
     # loaded (the API doesn't return a count, so we derive it from the GeoJSON).
     # None until then; persisted so the badge survives restarts.
     detection_count: int | None = None
+    # 完了後にサーバが返す実績値。単位付きで並べるだけで、それぞれが
+    # 何の数字かはラベルなしに読める
+    completed_at: str | None = None
+    area_sqkm: float | None = None
+    credits_used: float | None = None
 
     # --- request context ----------------------------------------------------
     # What was actually asked for, so a card is identifiable without loading the
@@ -186,8 +191,16 @@ def update_status(
     status: str,
     error_code: str | None = None,
     error_message: str | None = None,
+    completed_at: str | None = None,
+    area_sqkm: float | None = None,
+    credits_used: float | None = None,
 ) -> TrackedJob | None:
-    """Update a tracked job; returns the updated entry or None if not found."""
+    """Update a tracked job; returns the updated entry or None if not found.
+
+    The completion figures are optional because only the jobs-list endpoint
+    carries them; a plain status poll leaves them untouched rather than
+    blanking what a previous refresh already learned.
+    """
     if status not in VALID_STATUSES:
         status = "unknown"
     jobs = _read()
@@ -198,6 +211,12 @@ def update_status(
                 job.error_code = error_code
             if error_message is not None:
                 job.error_message = error_message
+            if completed_at is not None:
+                job.completed_at = completed_at
+            if area_sqkm is not None:
+                job.area_sqkm = area_sqkm
+            if credits_used is not None:
+                job.credits_used = credits_used
             _write(jobs)
             return job
     return None

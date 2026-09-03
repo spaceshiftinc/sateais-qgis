@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import socket
 import urllib.error
 import urllib.parse
@@ -20,9 +21,10 @@ from .errors import (
     PermissionDeniedError,
     RateLimitError,
     ServerError,
+    UnsupportedResultFormatError,
     ValidationError,
 )
-from .types import Job, JobStatus
+from .types import Job, JobStatus, Preview, preview_from_dict
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
@@ -54,12 +56,13 @@ class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return new_req
 
 
+# このクライアントは常にこの opener 経由で開く（base URL のスキームは
+# __init__ で http/https に限定済み）。
+# **install_opener() はしない。** プロセス全体の既定 opener を差し替えると、
+# 同じ QGIS で動く他のプラグインの urlopen() まで巻き込む。プロキシや独自
+# 認証ハンドラを入れている相手を、後から読み込まれた側が黙って上書きする。
+# 安全側の挙動であっても、自分の外の状態を書き換えてよい理由にはならない。
 _AUTH_STRIPPING_OPENER = urllib.request.build_opener(_AuthStrippingRedirectHandler())
-# The client opens requests through this opener directly (the base URL scheme
-# is validated to http/https in __init__). It is also installed globally so the
-# redirect fix covers any urlopen() callers outside this client, matching the
-# safer behaviour of the requests library.
-urllib.request.install_opener(_AUTH_STRIPPING_OPENER)
 
 _STATUS_TO_ERROR: dict[int, type[APIError]] = {
     400: ValidationError,
@@ -83,6 +86,7 @@ class ApiClient(Protocol):
     """Transport interface for the SateAIs API (swappable for tests)."""
 
     def submit_analysis(self, request) -> Job: ...  # type: ignore[no-untyped-def]
+    def preview_analysis(self, request) -> Preview: ...  # type: ignore[no-untyped-def]
     def get_job(self, job_id: str) -> Job: ...
     def get_job_result(self, job_id: str) -> dict[str, Any]: ...
     def list_jobs(
@@ -119,12 +123,25 @@ class UrllibApiClient:
         data = self._request("POST", path, json_body=request.to_body())
         return _job_from_dict(data)
 
+    def preview_analysis(self, request) -> Preview:  # type: ignore[no-untyped-def]
+        # ボディはジョブ投入と完全に同一 (docs/API.md の preview 節)。ジョブは
+        # 作られずクレジットも消費しないので、入力が変わるたびに呼んでよい
+        path = f"/analyze/{urllib.parse.quote(request.analysis_type.value, safe='')}/preview"
+        data = self._request("POST", path, json_body=request.to_body())
+        if not isinstance(data, dict):
+            raise APIError(0, None, f"unexpected preview payload: {type(data).__name__}")
+        return preview_from_dict(data)
+
     def get_job(self, job_id: str) -> Job:
         data = self._request("GET", f"/jobs/{urllib.parse.quote(job_id, safe='')}")
         return _job_from_dict(data)
 
     def get_job_result(self, job_id: str) -> dict[str, Any]:
-        data = self._request("GET", f"/jobs/{urllib.parse.quote(job_id, safe='')}/result.geojson")
+        data = self._request(
+            "GET",
+            f"/jobs/{urllib.parse.quote(job_id, safe='')}/result.geojson",
+            require_json=True,
+        )
         if not isinstance(data, dict):
             raise APIError(0, None, f"unexpected result payload: {type(data).__name__}")
         return data
@@ -163,6 +180,7 @@ class UrllibApiClient:
         method: str,
         path: str,
         json_body: dict[str, Any] | None = None,
+        require_json: bool = False,
     ) -> Any:
         url = self.base_url + API_VERSION_PATH + path
         headers = {
@@ -180,6 +198,10 @@ class UrllibApiClient:
 
         try:
             with _AUTH_STRIPPING_OPENER.open(req, timeout=self.timeout) as response:
+                # 本文を読む前に形式を確かめる。GeoJSON でない結果は 200 で
+                # 数十 MB の別形式が返ることがあり、読んでから捨てるのは無駄
+                if require_json:
+                    _require_json_body(response.headers.get("Content-Type", ""))
                 raw = response.read()
         except urllib.error.HTTPError as e:
             _raise_api_error(e)
@@ -200,6 +222,19 @@ class UrllibApiClient:
             return json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             raise APIError(0, None, f"invalid JSON response: {e}") from e
+
+
+def _require_json_body(content_type: str) -> None:
+    """Reject a successful response whose body is not JSON.
+
+    ``/result.geojson`` answers 200 with the archive itself for result types
+    that are not GeoJSON, so there is no HTTP error to catch — the only signal
+    is the media type. Checking it keeps the client free of any list of which
+    detection types return what.
+    """
+    media = content_type.split(";", 1)[0].strip().lower()
+    if media and not (media == "application/json" or media.endswith("+json")):
+        raise UnsupportedResultFormatError(media)
 
 
 def _raise_api_error(http_error: urllib.error.HTTPError) -> NoReturn:
@@ -249,6 +284,8 @@ def _job_from_dict(data: Any) -> Job:
     if not isinstance(job_id, str) or not job_id:
         raise APIError(0, None, "response is missing a valid job_id")
     request_params = data.get("request_params")
+    coverage = data.get("coverage")
+    coverage_polygon = coverage.get("polygon") if isinstance(coverage, dict) else None
     return Job(
         job_id=job_id,
         status=JobStatus.parse(data.get("status")),
@@ -258,8 +295,18 @@ def _job_from_dict(data: Any) -> Job:
         error_code=data.get("error_code") or data.get("error"),
         error_message=data.get("error_message"),
         endpoint_id=data.get("endpoint_id"),
+        coverage_polygon=coverage_polygon if isinstance(coverage_polygon, str) else None,
+        area_sqkm=_opt_number(data.get("area_sqkm")),
+        credits_used=_opt_number(data.get("credits_used")),
         request_params=request_params if isinstance(request_params, dict) else None,
     )
+
+
+def _opt_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 __all__ = [

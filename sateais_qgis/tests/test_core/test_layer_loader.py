@@ -7,7 +7,6 @@ import pytest
 pyqgis_available = True
 try:
     from qgis.core import (
-        QgsApplication,
         QgsRuleBasedRenderer,
         QgsSingleSymbolRenderer,
         QgsVectorLayer,
@@ -21,14 +20,6 @@ pytestmark = pytest.mark.skipif(
 
 if pyqgis_available:
     from sateais_qgis.core import layer_loader
-
-
-@pytest.fixture(scope="module")
-def qgis_app():
-    app = QgsApplication([], False)
-    app.initQgis()
-    yield app
-    app.exitQgis()
 
 
 def _polygon_layer(fields_uri: str = "") -> QgsVectorLayer:

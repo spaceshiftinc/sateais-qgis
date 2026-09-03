@@ -4,7 +4,7 @@ qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 description=Run SateAIs SAR satellite detection (ship, oil slick, new building, disappear building, time series) directly from QGIS.
 description[ja]=SateAIs の SAR 衛星画像解析（船舶 / オイルスリック / 新規建物 / 消失建物 / 時系列変化）を QGIS から実行できるプラグイン。
-version=0.3.0
+version=0.4.0
 author=SpaceShift Inc.
 email=osgeo@spcsft.com
 
@@ -26,6 +26,17 @@ tags=sar,sentinel-1,satellite,remote sensing,ship detection,oil slick,building d
 category=Web
 
 changelog=
+    0.4.0 (2026-09-03)
+    - The credit cost and the area that will actually be analysed are shown before you submit
+    - The map distinguishes the area you requested, the part that will be analysed, and the part with no satellite data
+    - Jobs search matches a fragment of the job id as you type, plus type, scene and dates
+    - Job cards state the outcome in words and label every figure
+    - Fix: a plugin-wide change to Python's default URL opener that affected other plugins in the same QGIS session
+    - Fix: changing the area while an estimate was loading could crash QGIS (3.40)
+    - Fix: clearing the drawn area now also clears it from the map
+    - Fix: results that are not map layers are named as such instead of failing with a parser error
+    - Fix: jobs the server does not know about are removed instead of warning on every refresh
+    - Fix: an area over the per-analysis limit now states both numbers and what to do
     0.3.0 (2026-08-14)
     - Fix: "Get an API key" opened the console root, which redirects to the login screen when signed out; it now opens the registration page
     - The welcome page now leads with "Create a free account"

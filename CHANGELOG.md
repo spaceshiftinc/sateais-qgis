@@ -3,6 +3,46 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-03
+
+### Added
+- **The cost and the analysed area are shown before you submit.** A job cannot be
+  cancelled once it runs, so an estimate afterwards is useless. Drawing an area now
+  fetches the credit estimate and the coverage the satellites actually provide, and
+  the map shows three things at once: the area you requested, the part that will be
+  analysed, and the part with no satellite data. Without the third, "nothing was
+  detected here" and "this was never looked at" looked identical.
+- The Analysis tab is a three-step checklist (detection type, dates, area), so the
+  whole remaining path is visible from the start rather than one missing field at a
+  time. Your credit balance, and what the run would leave, sit below the button.
+- **Jobs search is back**, matching a fragment of the job id as you type as well as
+  the detection type, scene id and dates. Filtering stays instant as the list grows.
+- Job cards state the outcome in words ("138 new buildings found" / "No ships
+  found") and name every figure, so a timestamp, an area, a cost and a runtime are
+  no longer four unlabelled numbers in a row.
+
+### Fixed
+- **A plugin-wide change to Python's default URL opener has been removed.** It was
+  installed at import time and intercepted requests made by *other* plugins in the
+  same QGIS session, silently overriding any proxy or authentication handler they
+  had set up.
+- **Changing the area while an estimate was in flight could crash QGIS** with
+  `RuntimeError: wrapped C/C++ object ... has been deleted` (reported on 3.40).
+- **Clearing the drawn area now clears the map.** The same polygon was drawn onto
+  two overlays and only one of them was removed.
+- Results that are not map layers are named as such instead of failing with a
+  parser error, and nothing is downloaded once the format is known.
+- Jobs that the server does not know about are removed from the list instead of
+  being retried five times and warning on every refresh.
+- An area over the per-analysis limit now states both numbers and what to do,
+  rather than "the server rejected the request".
+- Corrected messages that misdescribed the concurrent-job limit as a request-rate
+  limit, and an upload-size limit as the area being too large.
+- Submitting no longer overwrites your clipboard or prints a 36-character id.
+- An error message pointed at a button that no longer exists.
+- A write error while saving a result could surface as `Bad file descriptor`,
+  hiding what actually went wrong.
+
 ## [0.3.0] - 2026-08-14
 
 ### Fixed
