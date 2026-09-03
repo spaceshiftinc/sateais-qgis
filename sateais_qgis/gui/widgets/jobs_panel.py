@@ -10,6 +10,7 @@ from qgis.PyQt.QtCore import QCoreApplication, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -165,6 +166,31 @@ class JobsPanel(QWidget):
         header.addWidget(self.refresh_button)
         outer.addLayout(header)
 
+        # ID は 36 桁。打ち切る人はいないので、部分一致で打った端から絞り込む。
+        # 種別名・シーン ID・日付も同じ箱で引ける（core.job_summary の haystack）
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self.search_edit = QLineEdit()
+        self.search_edit.setObjectName("Chip")
+        self.search_edit.setPlaceholderText(self.tr("Search jobs — ID, type, scene, date"))
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._apply_search)
+        search_row.addWidget(self.search_edit)
+        # 絞り込みが効いていることが常に見えていないと、「ジョブが消えた」になる
+        self.match_count_label = QLabel("")
+        self.match_count_label.setObjectName("HintLabel")
+        self.match_count_label.setVisible(False)
+        search_row.addWidget(self.match_count_label)
+        outer.addLayout(search_row)
+
+        # 「まだ 1 件も無い」と「条件に合うものが無い」は別の状態。
+        # 同じ文言にすると、絞り込んだだけなのに消えたと読まれる
+        self.no_match_label = QLabel(self.tr("No jobs match this search."))
+        self.no_match_label.setObjectName("HintLabel")
+        self.no_match_label.setWordWrap(True)
+        self.no_match_label.setVisible(False)
+        outer.addWidget(self.no_match_label)
+
         # Cosmic empty state (starfield + CTA) shown when there are no jobs.
         self.empty_state = EmptyState()
         self.empty_state.start_requested.connect(self.start_analysis_requested)
@@ -222,6 +248,27 @@ class JobsPanel(QWidget):
         # The stretch lives at index `count - 1`; insert above it.
         insert_at = 0 if prepend else max(0, self._list_layout.count() - 1)
         self._list_layout.insertWidget(insert_at, card)
+        self._apply_search()
+
+    def _apply_search(self, text: str = "") -> None:
+        """Show only the cards matching the query. Runs on every keystroke.
+
+        Two things keep this cheap as the list grows: each card's haystack is
+        built once (not per keystroke), and ``setVisible`` is only called when
+        the answer actually changes — a redundant call still invalidates the
+        layout, which is the expensive part, not the string compare.
+        """
+        query = (text or self.search_edit.text()).strip().lower()
+        shown = 0
+        for card in self._cards.values():
+            match = (not query) or (query in card.search_text)
+            if card.isVisibleTo(self) != match:
+                card.setVisible(match)
+            shown += match
+        total = len(self._cards)
+        self.match_count_label.setText(f"{shown} / {total}")
+        self.match_count_label.setVisible(bool(query) and total > 0)
+        self.no_match_label.setVisible(bool(query) and total > 0 and shown == 0)
 
     def _refresh_empty_state(self) -> None:
         self.empty_state.setVisible(not self._cards)
@@ -473,6 +520,7 @@ class JobsPanel(QWidget):
         if not count:
             return
         self._forgotten.clear()
+        self._apply_search()
         self.iface.messageBar().pushMessage(
             "SateAIs",
             self.tr(f"Removed {count} job(s) from this list: they are not on your account."),

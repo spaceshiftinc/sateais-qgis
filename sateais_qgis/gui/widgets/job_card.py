@@ -48,6 +48,9 @@ class JobCard(QFrame):
         self._job = job
         if job.polygon:
             self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        # 打鍵のたびに全カード分を組み直すと、件数が増えたときに効いてくる。
+        # 中身が変わるのは request context が埋まったときだけなので、そこで更新する
+        self.search_text = job_summary.build_search_text(job)
         self._build_ui()
         self._refresh_request()
         self.set_status(job.status, job.error_code, job.error_message)
@@ -228,6 +231,7 @@ class JobCard(QFrame):
         """Adopt request details resolved after the card was built (i.e. by Sync)."""
         for field in ("scene_id", "date", "date_start", "date_end", "request_source", "polygon"):
             setattr(self._job, field, getattr(job, field))
+        self.search_text = job_summary.build_search_text(self._job)
         self._refresh_request()
         # A backfilled polygon makes the card clickable for the first time.
         if self._job.polygon:

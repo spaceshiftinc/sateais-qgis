@@ -231,3 +231,55 @@ class TestDetectionCount:
 
     def test_groups_thousands(self):
         assert job_summary.format_detection_count(12345) == "12,345 found"
+
+
+class TestSearchText:
+    """検索は ID の完全一致ではなく、打った端から絞り込める部分一致。
+
+    36 桁を打ち切る人はいない。実際の使い方は「コンソールで見た ID を貼る」か
+    「先週の ship のやつを探す」のどちらかなので、ID・種別・シーン・日付を
+    1 本の文字列にまとめて部分一致で引く。
+    """
+
+    def _job(self, **kw):
+        base = dict(
+            job_id="7cf9025b-a262-491d-9d5e-2ba638448273",
+            analysis_type="newbuilding",
+            submitted_at="2026-09-03T00:12:12Z",
+            date_start="2026-07-26",
+            date_end="2026-09-02",
+        )
+        base.update(kw)
+        return StubJob(**base)
+
+    def test_a_fragment_of_the_id_matches(self):
+        haystack = job_summary.build_search_text(self._job())
+        # 貼り付ける前に数文字打っただけでも絞り込めること
+        for fragment in ("7cf9", "7cf9025b", "a262-491d", "2ba638448273"):
+            assert fragment in haystack, fragment
+
+    def test_the_whole_id_matches(self):
+        job = self._job()
+        assert job.job_id in job_summary.build_search_text(job)
+
+    def test_matches_either_spelling_of_the_type(self):
+        haystack = job_summary.build_search_text(self._job())
+        assert "newbuilding" in haystack
+        assert "new building detection" in haystack
+
+    def test_matches_the_dates_and_the_scene(self):
+        haystack = job_summary.build_search_text(
+            self._job(scene_id="S1A_IW_GRDH_1SDV_20260101T123456_X")
+        )
+        assert "2026-07-26" in haystack
+        assert "s1a_iw_grdh" in haystack
+
+    def test_is_lower_cased_so_matching_can_ignore_case(self):
+        haystack = job_summary.build_search_text(
+            self._job(scene_id="S1A_IW_GRDH_1SDV_20260101T123456_X")
+        )
+        assert haystack == haystack.lower()
+
+    def test_missing_context_does_not_break_the_haystack(self):
+        job = self._job(date_start=None, date_end=None)
+        assert job.job_id in job_summary.build_search_text(job)
