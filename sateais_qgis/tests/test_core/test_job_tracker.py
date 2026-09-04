@@ -348,3 +348,63 @@ class TestPersistenceFormat:
         # Subsequent add() should still work.
         job_tracker.add("ship", "fresh")
         assert [j.job_id for j in job_tracker.list_all()] == ["fresh"]
+
+
+class TestListAllOrdering:
+    """一覧は投入日時の新しい順。**保存順ではない。**
+
+    実際に起きていた不具合: ローカル投入は先頭に積み、Sync は別の順で挿し込む
+    ため、保存順は経路によって変わる。利用者の環境（47 件）では
+    2026-08-19 の並びの直後に 2026-08-24 が現れていた。並びが崩れると、
+    リスト自体が何順なのか読めなくなる。
+    """
+
+    def _stored(self, fake_store, stamps):
+        fake_store.setValue(
+            job_tracker._KEY_JOBS,
+            json.dumps(
+                [
+                    {
+                        "job_id": f"job-{i}",
+                        "analysis_type": "ship",
+                        "submitted_at": stamp,
+                        "status": "completed",
+                    }
+                    for i, stamp in enumerate(stamps)
+                ]
+            ),
+        )
+
+    def test_out_of_order_storage_is_sorted_newest_first(self, fake_store):
+        # 実環境で観測した崩れ方をそのまま再現する
+        self._stored(
+            fake_store,
+            [
+                "2026-09-03T00:12:12+00:00",
+                "2026-08-19T10:02:55+00:00",
+                "2026-08-24T07:34:29+00:00",  # 古い位置に紛れた新しい記録
+                "2026-07-28T06:54:21+00:00",
+            ],
+        )
+        got = [j.submitted_at[:10] for j in job_tracker.list_all()]
+        assert got == ["2026-09-03", "2026-08-24", "2026-08-19", "2026-07-28"]
+
+    def test_mixed_timestamp_formats_still_compare(self, fake_store):
+        """Z 付きとオフセット付きが混在する。文字列比較では並ばない。"""
+        self._stored(
+            fake_store,
+            ["2026-08-19T10:02:55Z", "2026-09-03T00:12:12+00:00", "2026-08-24T07:34:29Z"],
+        )
+        got = [j.submitted_at[:10] for j in job_tracker.list_all()]
+        assert got == ["2026-09-03", "2026-08-24", "2026-08-19"]
+
+    def test_unreadable_timestamps_go_last_and_are_not_dropped(self, fake_store):
+        """読めない日時でも記録は消さない。並びの末尾に置く。"""
+        self._stored(
+            fake_store,
+            ["not a date", "2026-09-03T00:12:12+00:00", "", "2026-08-19T10:02:55Z"],
+        )
+        jobs = job_tracker.list_all()
+        assert len(jobs) == 4
+        assert [j.submitted_at[:10] for j in jobs[:2]] == ["2026-09-03", "2026-08-19"]
+        assert {j.submitted_at for j in jobs[2:]} == {"not a date", ""}

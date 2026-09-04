@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime
 from typing import Any
+
+from . import job_summary
 
 
 def _fmt(value: float, digits: int = 2) -> str:
@@ -187,10 +188,11 @@ def took_label(submitted_at: str | None, completed_at: str | None) -> str:
     """How long the run took. Mirrors format.ts ``tookLabel``."""
     if not submitted_at or not completed_at:
         return ""
-    try:
-        start = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-    except ValueError:
+    # 日時の読み方は job_summary に 1 箇所だけ。ここで独自に fromisoformat を
+    # 呼んでいたため、小数 5 桁の記録では所要時間がまるごと空になっていた
+    start = job_summary.parse_iso8601(submitted_at)
+    end = job_summary.parse_iso8601(completed_at)
+    if start is None or end is None:
         return ""
     seconds = round((end - start).total_seconds())
     if seconds < 0:
