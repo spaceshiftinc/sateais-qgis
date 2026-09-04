@@ -34,6 +34,21 @@ _STATUS_LABEL = {
 _PULSE_MS = 650
 
 
+def _plain_tooltip(text: str) -> str:
+    """Escape text so a tooltip renders it literally, on Qt 5 and Qt 6 alike.
+
+    Tooltips have no ``setTextFormat``: Qt sniffs the string and switches to
+    rich text if it looks like markup, so a value that ever led with ``<`` would
+    be interpreted rather than shown. ``Qt.convertFromPlainText`` used to do the
+    escaping, but it is absent from the Qt 6 build QGIS 4.0 ships — the plugin
+    failed to load there outright. Escaping here needs nothing from Qt.
+
+    Newlines become ``<br>`` and the whole thing is wrapped in a paragraph, so
+    the tooltip still wraps normally instead of running off the screen.
+    """
+    return "<p>" + escape(text).replace("\n", "<br>") + "</p>"
+
+
 class JobCard(QFrame):
     """One Job entry: badge, metadata, action buttons. Clicking the card body
     requests an AOI preview on the map (when a polygon was stored)."""
@@ -270,18 +285,7 @@ class JobCard(QFrame):
         # ID は控えるための値。省略すると写せず、目立たせる必要もない
         self.id_label.setText(self._job.job_id)
         self._refresh_finds()
-        # Escape rather than trust: tooltips have no setTextFormat, and Qt decides
-        # rich vs plain by sniffing the string. Today's tooltip always starts with
-        # plain text so it renders as plain, but that would flip if a value ever
-        # led with markup — convertFromPlainText makes the docstring's promise real.
-        # WhiteSpaceNormal is passed explicitly: PyQt defaults to WhiteSpacePre,
-        # which turns every space into &nbsp; and stops the tooltip from wrapping.
-        self.setToolTip(
-            Qt.convertFromPlainText(
-                job_summary.build_request_tooltip(self._job),
-                Qt.WhiteSpaceMode.WhiteSpaceNormal,
-            )
-        )
+        self.setToolTip(_plain_tooltip(job_summary.build_request_tooltip(self._job)))
 
     @staticmethod
     def _meta_markup(fields: list[tuple[str, str]]) -> str:
