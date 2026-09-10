@@ -3,6 +3,39 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-09-10
+
+### Fixed
+- **The plugin no longer fails to load on QGIS 4.** Building a job card called a Qt
+  function that the Qt 6 builds QGIS 4 ships do not have, and the Jobs panel is
+  built during startup — so anyone with a job in their history got "Couldn't load
+  plugin" instead of a plugin. Every release since 0.2.0 was affected. The plugin
+  now escapes that text itself rather than asking Qt to.
+- **The Jobs list is now actually ordered.** It claimed to be newest-first but
+  returned whatever order the entries happened to be stored in, which drifts apart
+  as jobs are added locally and imported from the server.
+- **Timestamps the server sends are no longer unreadable.** Fractional seconds come
+  back with trailing zeros trimmed, which Python 3.9 refuses to parse — so on QGIS
+  LTR those jobs showed a raw timestamp instead of a date, had no runtime, and sank
+  to the bottom of the list regardless of their date. In one real history 9 of 47
+  jobs were affected.
+- **The two dates on a job card are told apart.** The analysis period sat above the
+  submission time with no label, so the date that read first was not the one the
+  list was ordered by, which made the ordering look arbitrary. The submission time
+  now leads, and the period is labelled.
+- **Clearing the drawn area now clears it from the map.** The same outline was drawn
+  onto two overlays and only one of them was removed.
+- Pasting a polygon now brings the map to it. It was drawn wherever it fell, usually
+  off-screen, which read as nothing having happened.
+
+### Added
+- Jobs search matches part of a job id as you type, as well as the detection type,
+  scene id and dates.
+
+### Changed
+- The declared QGIS range is now tested rather than asserted: every change runs the
+  full suite on QGIS 3.34, 3.40 and 4.0 before it can merge.
+
 ## [0.4.0] - 2026-09-03
 
 ### Added

@@ -223,6 +223,8 @@ class SetupCard(QFrame):
         super().__init__(parent)
         self.setObjectName("SetupCard")
         self._analysis_type: str | None = None
+        # 地図で描いた範囲か、打ち込まれた範囲か。前者は画面を動かさない
+        self._polygon_from_map = False
         self._open_step: str | None = "kind"
         self._build_ui()
         self._refresh()
@@ -498,10 +500,25 @@ class SetupCard(QFrame):
         self._refresh()
 
     def set_polygon(self, wkt: str, area_km2: float) -> None:
-        self.polygon_edit.setText(wkt)
-        self.area_row.value.setText(f"{area_km2:,.2f} km²")
-        self._open_step = None
-        self._refresh()
+        """Fill in an area picked on the map.
+
+        The flag is what lets the panel tell this apart from a pasted WKT.
+        ``setText`` emits ``inputs_changed`` synchronously, so it is read while
+        still set — hence the try/finally rather than clearing it afterwards.
+        """
+        self._polygon_from_map = True
+        try:
+            self.polygon_edit.setText(wkt)
+            self.area_row.value.setText(f"{area_km2:,.2f} km²")
+            self._open_step = None
+            self._refresh()
+        finally:
+            self._polygon_from_map = False
+
+    @property
+    def polygon_from_map(self) -> bool:
+        """True while handling an area that came from the map tool."""
+        return self._polygon_from_map
 
     def is_complete(self) -> bool:
         return self._analysis_type is not None and bool(self.polygon_edit.text().strip())

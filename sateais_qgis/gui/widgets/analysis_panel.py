@@ -83,7 +83,8 @@ class AnalysisPanel(QWidget):
     settings_requested = pyqtSignal()  # welcome-page CTA → open the auth dialog
     # (requested_wkt, analysed_wkt|None) — キャンバスに重ねる 2 つの範囲。
     # 見積もりが取れないうちは analysed=None で「まだ分からない」を表す
-    coverage_changed = pyqtSignal(str, object)
+    # (要求範囲 WKT, 解析範囲 WKT | None, 画面をそこへ寄せるか)
+    coverage_changed = pyqtSignal(str, object, bool)
 
     def __init__(self, iface, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,6 +102,8 @@ class AnalysisPanel(QWidget):
         self._preview_worker: PreviewWorker | None = None
         self._preview_seq = 0
         self._preview_retried = False
+        # 直前に地図へ描いた要求範囲。同じものを描き直すだけなら画面を動かさない
+        self._shown_polygon = ""
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(PREVIEW_DEBOUNCE_MS)
@@ -256,8 +259,15 @@ class AnalysisPanel(QWidget):
         self._drop_preview()
         kwargs = self._current_form().build_kwargs()
         polygon = (kwargs or {}).get("polygon")
+        # 打ち込まれた範囲は、いま見ている場所とは無関係なことがほとんどで、
+        # 寄せないと「描いたのに何も出ない」に見える。地図で描いた場合は
+        # 既にそこを見ているので動かさない。日付や種別を変えただけのときも同じ
+        polygon = polygon or ""
+        recenter = bool(polygon) and polygon != self._shown_polygon
+        recenter = recenter and not self.form.polygon_from_map
+        self._shown_polygon = polygon
         # scene_id 指定では解析範囲がシーンで決まるので、地図に重ねる要求範囲もない
-        self.coverage_changed.emit(polygon or "", None)
+        self.coverage_changed.emit(polygon, None, recenter)
         if kwargs is None or not polygon:
             return
         self._preview_retried = False
@@ -341,7 +351,8 @@ class AnalysisPanel(QWidget):
             )
             coverage = payload.coverage.polygon if payload.coverage else None
             requested = (self._current_form().build_kwargs() or {}).get("polygon") or ""
-            self.coverage_changed.emit(requested, coverage)
+            # 見積もりの応答で画面を動かさない。範囲は既に描かれている
+            self.coverage_changed.emit(requested, coverage, False)
             return
 
         # 一度だけ聞き直す。コールドスタート直後は落ちても、二度目は返る
