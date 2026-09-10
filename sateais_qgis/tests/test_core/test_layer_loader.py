@@ -11,6 +11,7 @@ try:
         QgsSingleSymbolRenderer,
         QgsVectorLayer,
     )
+    from qgis.PyQt.QtCore import Qt
 except ImportError:
     pyqgis_available = False
 
@@ -92,7 +93,8 @@ class TestTimeseriesChangeRamp:
         # Outline only: 2402 of 2409 cells land here on a real job, and filling
         # them buries the findings.
         assert neutral.symbol().symbolLayerCount() == 1
-        assert neutral.symbol().symbolLayer(0).brushStyle() == 0  # Qt.BrushStyle.NoBrush
+        # Qt5 は int を返し Qt6 は enum を返す。列挙子と比べれば両方で通る
+        assert neutral.symbol().symbolLayer(0).brushStyle() == Qt.BrushStyle.NoBrush
 
     def test_change_classes_carry_a_constant_size_marker(self, layer):
         for rule in layer.renderer().rootRule().children()[:-1]:

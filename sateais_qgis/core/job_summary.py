@@ -8,6 +8,7 @@ so those strings have a single home.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
@@ -106,20 +107,38 @@ def format_scene_id(scene_id: str) -> str:
     return _shorten(scene_id, _SCENE_ID_MAX)
 
 
+# 小数秒の桁数をそろえるための切り出し。3 桁でも 6 桁でもない値が来る
+_FRACTIONAL_SECONDS_RE = re.compile(r"(?<=:\d\d)\.(\d+)")
+
+
 def parse_iso8601(value: str) -> datetime | None:
     """Parse an ISO 8601 timestamp, or return None when it cannot be read.
 
-    ``datetime.fromisoformat`` only learned to accept a ``Z`` suffix in Python
-    3.11, and QGIS LTR 3.34 / 3.40 both ship Python 3.9 — while the jobs list
-    endpoint returns exactly that form (``2026-07-03T03:39:21.506327Z``). Without
-    this substitution every synced job's timestamp fails to parse.
+    Two things Python 3.9 (QGIS LTR 3.34 / 3.40) cannot do with the timestamps
+    this API returns, both of which made real jobs unreadable:
+
+    ``Z`` suffix — ``fromisoformat`` only learned it in 3.11, while every
+    timestamp from the jobs endpoints ends in one.
+
+    **Variable-precision fractional seconds** — ``fromisoformat`` accepts
+    *exactly* 3 or 6 digits before 3.11, but the server drops trailing zeros, so
+    ``…52.74747Z`` (5 digits) arrives routinely. In one real store 9 of 47 jobs
+    were affected: their cards printed the raw ISO string instead of a date,
+    their runtimes were blank, and they sorted as though they had no date at
+    all. Padding to 6 digits (truncating anything longer, which is below
+    microsecond resolution) makes every precision readable.
 
     Naive timestamps are treated as UTC, which is what the API emits.
     """
     if not value or not isinstance(value, str):
         return None
+    normalised = value.replace("Z", "+00:00")
+    match = _FRACTIONAL_SECONDS_RE.search(normalised)
+    if match:
+        digits = match.group(1)[:6].ljust(6, "0")
+        normalised = normalised[: match.start()] + "." + digits + normalised[match.end() :]
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalised)
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
@@ -174,15 +193,22 @@ def format_relative(delta: timedelta) -> str:
 def build_request_summary(job: TrackedJob) -> str:
     """One line saying what was asked for, or ``""`` when nothing is known.
 
+    **The dates are labelled.** A card carries two kinds of date — when the job
+    was submitted, and the span of imagery it asked for — and unlabelled they
+    render identically. The submitted date is what the list is ordered by, so
+    when the request date is the one that reads first, the ordering looks
+    arbitrary. Naming this one keeps the two apart.
+
     Callers hide the line entirely on an empty string, so a job whose request
     context was never captured does not leave a gap in the card.
     """
     if job.date_start and job.date_end:
-        return f"{job.date_start} → {job.date_end}"
+        return f"Period {job.date_start} → {job.date_end}"
     if job.scene_id:
         return f"Scene {format_scene_id(job.scene_id)}"
     if job.date:
-        return job.date
+        # ship / oilslick の基準日。裸で置くと投入日と見分けが付かない
+        return f"Reference date {job.date}"
     return ""
 
 

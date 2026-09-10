@@ -210,3 +210,22 @@ class TestAreaLimitReason:
             "Polygon area (31,204.9 km²) exceeds 30,000 km² limit for endpoint 'newbuilding'"
         )
         assert "31,204.9 km²" in said and "30,000 km²" in said
+
+
+class TestTookLabelPrecision:
+    """所要時間も同じ日時解析を通ること。
+
+    独自に fromisoformat を呼んでいたため、小数 5 桁の記録では所要時間が
+    まるごと空になっていた。日時の読み方は 1 箇所に集約する。
+    """
+
+    def test_five_digit_fractional_seconds_still_measure(self):
+        assert (
+            wording.took_label("2026-09-01T04:22:52.74747Z", "2026-09-01T04:25:52.74747Z")
+            == "3m 0s"
+        )
+
+    def test_mixed_precision_between_the_two_ends(self):
+        assert (
+            wording.took_label("2026-09-01T04:22:52.74747Z", "2026-09-01T04:23:22.747470Z") == "30s"
+        )

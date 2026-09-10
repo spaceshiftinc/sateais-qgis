@@ -40,6 +40,40 @@ jobs:
       - run: pip install pytest
       - run: python -m pytest -q
 
+  # metadata.txt が宣言している対応範囲の両端で、実物の QGIS を使って回す。
+  # 上の `test` は PyQGIS が無いので QGIS 依存のテストを全部 skip しており、
+  # 300 件以上が CI では一度も実行されていなかった。その結果 Qt6 でしか
+  # 起きない不具合（Qt.convertFromPlainText の削除）が利用者に届いた。
+  # **対応を宣言するバージョンは、ここで動かして初めて宣言できる。**
+  qgis:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # qgisMinimumVersion = 3.34（Qt 5 / Python 3.12）
+          - image: "qgis/qgis:3.34"
+            label: "3.34 (Qt5)"
+          # 現行の LTR
+          - image: "qgis/qgis:3.40"
+            label: "3.40 LTR (Qt5)"
+          # qgisMaximumVersion 側。Qt 6 / Python 3.13
+          - image: "qgis/qgis:4.0"
+            label: "4.0 (Qt6)"
+    name: qgis ${{ matrix.label }}
+    container:
+      image: ${{ matrix.image }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+      - name: バージョンを記録する
+        run: |
+          python3 -c "from qgis.core import Qgis; from qgis.PyQt.QtCore import QT_VERSION_STR; import sys; print('QGIS', Qgis.QGIS_VERSION, '/ Qt', QT_VERSION_STR, '/ Python', sys.version.split()[0])"
+      - run: pip install --break-system-packages pytest
+      # test_geometry_adapter はコンテナの PROJ 構成に依存するため対象外
+      - run: python3 -m pytest -q --ignore=sateais_qgis/tests/test_geometry_adapter.py
+
   package:
     runs-on: ubuntu-latest
     steps:
