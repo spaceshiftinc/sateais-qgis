@@ -80,6 +80,9 @@ class TrackedJob:
             error_message=_optional_str(data.get("error_message")),
             polygon=polygon,
             detection_count=_optional_int(data.get("detection_count")),
+            completed_at=_optional_str(data.get("completed_at")),
+            area_sqkm=_optional_float(data.get("area_sqkm")),
+            credits_used=_optional_float(data.get("credits_used")),
             scene_id=_optional_str(data.get("scene_id")),
             date=_optional_str(data.get("date")),
             date_start=_optional_str(data.get("date_start")),
@@ -105,6 +108,12 @@ def _optional_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     return value if isinstance(value, int) and value >= 0 else None
+
+
+def _optional_float(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _request_context(request: dict[str, Any] | None) -> dict[str, str]:

@@ -7,6 +7,7 @@ import pytest
 pyqgis_available = True
 try:
     from qgis.core import (
+        QgsProject,
         QgsRuleBasedRenderer,
         QgsSingleSymbolRenderer,
         QgsVectorLayer,
@@ -103,3 +104,26 @@ class TestTimeseriesChangeRamp:
             # Fill layer plus the centroid marker that keeps cells findable when
             # zoomed out to the whole AOI.
             assert rule.symbol().symbolLayerCount() == 2
+
+
+class TestResultLayerLookup:
+    """A loaded result is found again by its job, so a second click does not duplicate it."""
+
+    def test_finds_the_layer_tagged_with_the_job(self, qgis_app):
+        layer = _polygon_layer()
+        layer_loader.tag_result_layer(layer, "job-1")
+        QgsProject.instance().addMapLayer(layer, addToLegend=False)
+        try:
+            found = layer_loader.find_result_layer("job-1")
+            assert found is not None and found.id() == layer.id()
+            assert layer_loader.find_result_layer("job-2") is None
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def test_an_untagged_layer_is_not_a_result(self, qgis_app):
+        layer = _polygon_layer()
+        QgsProject.instance().addMapLayer(layer, addToLegend=False)
+        try:
+            assert layer_loader.find_result_layer("job-1") is None
+        finally:
+            QgsProject.instance().removeMapLayer(layer.id())

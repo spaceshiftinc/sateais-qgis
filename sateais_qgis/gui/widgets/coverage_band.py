@@ -42,6 +42,9 @@ ANALYSED_WIDTH = 2
 UNCOVERED_COLOR = QColor(124, 138, 148, 170)  # #7C8A94
 UNCOVERED_FILL = QColor(124, 138, 148, 48)
 UNCOVERED_WIDTH = 1
+# Below this share of the requested area the shortfall is numerical noise, not
+# a strip the satellites missed. The legend uses the same threshold.
+NEGLIGIBLE_GAP_RATIO = 0.005
 
 
 class CoverageBand:
@@ -155,7 +158,7 @@ class CoverageBand:
             return ""
         # 数値誤差で残る髪の毛のような差分を「解析されない範囲」として塗ると、
         # 全面カバーでも警告色が出てしまう。要求面積に対する比で捨てる
-        if requested.area() > 0 and remainder.area() / requested.area() < 0.005:
+        if requested.area() > 0 and remainder.area() / requested.area() < NEGLIGIBLE_GAP_RATIO:
             return ""
         return remainder.asWkt()
 

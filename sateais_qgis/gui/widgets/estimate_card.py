@@ -29,6 +29,7 @@ from ...core.api.types import Preview
 from .coverage_band import (
     ANALYSED_COLOR,
     ANALYSED_FILL,
+    NEGLIGIBLE_GAP_RATIO,
     REQUESTED_COLOR,
     UNCOVERED_COLOR,
     UNCOVERED_FILL,
@@ -243,7 +244,8 @@ class EstimateCard(QFrame):
         analysed_drawn = bool(preview.coverage and preview.coverage.polygon)
         self._show_legend(
             analysed=analysed_drawn,
-            uncovered=analysed_drawn and wording.coverage_is_partial(ratio),
+            # Same threshold as the band: a gap too small to draw is not in the legend.
+            uncovered=analysed_drawn and ratio is not None and ratio < 1 - NEGLIGIBLE_GAP_RATIO,
         )
 
     # --- helpers -------------------------------------------------------------

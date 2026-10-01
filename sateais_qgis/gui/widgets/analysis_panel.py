@@ -209,6 +209,8 @@ class AnalysisPanel(QWidget):
         self.submit_button.setObjectName("PrimaryButton")
         self.submit_button.setDefault(True)
         self.submit_button.clicked.connect(self._on_submit_clicked)
+        # Nothing to submit yet; `_on_inputs_changed` enables it once the form is complete.
+        self.submit_button.setEnabled(False)
         btn_row.addWidget(self.submit_button)
         outer.addLayout(btn_row)
 
@@ -239,7 +241,8 @@ class AnalysisPanel(QWidget):
 
     def set_pick_in_progress(self, in_progress: bool) -> None:
         """Reflect the polygon-picker state in the form (disable Submit, show hint)."""
-        self.submit_button.setEnabled(not in_progress)
+        # No submitting mid-pick; afterwards only a complete form may submit.
+        self.submit_button.setEnabled(not in_progress and self.form.is_complete())
         if in_progress:
             self._show_status(
                 True,
@@ -272,6 +275,10 @@ class AnalysisPanel(QWidget):
             return
         self._preview_retried = False
         self._preview_timer.start()
+
+    def discard_estimate(self) -> None:
+        """Drop the pending estimate and its on-screen figures (the dock was closed)."""
+        self._drop_preview()
 
     def _drop_preview(self) -> None:
         """Invalidate any in-flight estimate and clear what is on screen.
@@ -432,7 +439,7 @@ class AnalysisPanel(QWidget):
                 pass
 
         self.progress.setVisible(False)
-        self.submit_button.setEnabled(True)
+        self.submit_button.setEnabled(self.form.is_complete())
 
         if ok:
             job_id = payload
