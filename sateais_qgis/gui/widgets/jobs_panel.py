@@ -378,6 +378,7 @@ class JobsPanel(QWidget):
                     if tracked is not None:
                         card = self._cards[job_id]
                         card.set_status(status, job.error_code, job.error_message)
+                        card.apply_outcome(tracked)
                         resolved = job_tracker.set_request_context(
                             job_id, job.request_params, source
                         )
@@ -393,14 +394,19 @@ class JobsPanel(QWidget):
                         request=job.request_params,
                         request_source=source,
                     )
-                    job_tracker.update_status(
-                        job_id,
-                        status,
-                        job.error_code,
-                        job.error_message,
-                        completed_at=job.completed_at,
-                        area_sqkm=job.area_sqkm,
-                        credits_used=job.credits_used,
+                    # The card is built from the stored entry, so that entry has
+                    # to carry the completion figures too.
+                    tracked = (
+                        job_tracker.update_status(
+                            job_id,
+                            status,
+                            job.error_code,
+                            job.error_message,
+                            completed_at=job.completed_at,
+                            area_sqkm=job.area_sqkm,
+                            credits_used=job.credits_used,
+                        )
+                        or tracked
                     )
                     self._insert_card(tracked)
                     imported += 1
@@ -561,6 +567,18 @@ class JobsPanel(QWidget):
         if job_id in self._loaders:
             return
 
+        existing = layer_loader.find_result_layer(job_id)
+        if existing is not None:
+            # Already on the map; a second copy would only clutter the layer tree.
+            layer_loader.zoom_to_layer(existing, self.iface)
+            self.iface.messageBar().pushMessage(
+                "SateAIs",
+                self.tr("This result is already on the map."),
+                level=Qgis.MessageLevel.Info,
+                duration=4,
+            )
+            return
+
         # Make the actual id we are about to use visible in the log; a mismatch
         # with the server's UUID validator is the most common cause of a 400
         # VALIDATION_ERROR on this endpoint.
@@ -623,6 +641,7 @@ class JobsPanel(QWidget):
                 job.analysis_type, job.job_id, job.submitted_at, count
             )
             layer = layer_loader.load_geojson_as_layer(geojson, layer_name, job.analysis_type)
+            layer_loader.tag_result_layer(layer, job.job_id)
             layer_loader.add_to_project(layer, self.iface)
         except Exception as e:  # noqa: BLE001
             QgsMessageLog.logMessage(

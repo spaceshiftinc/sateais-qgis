@@ -37,6 +37,10 @@ _AOI_OUTLINE_COLOR = "#94a3b8"
 RESULTS_GROUP_NAME = "SateAIs Results"
 ZOOM_PADDING_RATIO = 0.15  # 15% buffer around features so they aren't at the very edge
 
+# Ties a result layer to its job, so a second click on the card finds the
+# layer instead of adding another copy.
+RESULT_JOB_PROPERTY = "sateais/job_id"
+
 # Per-detection style (border RGB + fill alpha). Choices match the COSMIC palette
 # and keep good contrast over satellite and OSM basemaps.
 _STYLE_BY_TYPE: dict[str, dict[str, Any]] = {
@@ -213,7 +217,24 @@ def add_to_project(layer: QgsVectorLayer, iface) -> None:
     QgsProject.instance().addMapLayer(layer, addToLegend=False)
     group = _ensure_results_group()
     group.insertLayer(0, layer)
+    zoom_to_layer(layer, iface)
 
+
+def tag_result_layer(layer: QgsVectorLayer, job_id: str) -> None:
+    """Mark a result layer with the job it came from."""
+    layer.setCustomProperty(RESULT_JOB_PROPERTY, job_id)
+
+
+def find_result_layer(job_id: str) -> QgsVectorLayer | None:
+    """The result layer already in the project for this job, if any."""
+    for layer in QgsProject.instance().mapLayers().values():
+        if layer.customProperty(RESULT_JOB_PROPERTY) == job_id:
+            return layer
+    return None
+
+
+def zoom_to_layer(layer: QgsVectorLayer, iface) -> None:
+    """Frame the layer on the canvas with a little room around it."""
     canvas = iface.mapCanvas()
     extent = layer.extent()
     if extent.isEmpty():
@@ -441,6 +462,9 @@ __all__ = [
     "load_aoi_as_layer",
     "add_to_project",
     "add_aoi_to_project",
+    "tag_result_layer",
+    "find_result_layer",
+    "zoom_to_layer",
     "apply_style",
     "build_layer_name",
     "build_aoi_layer_name",

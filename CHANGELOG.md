@@ -3,6 +3,22 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-10-01
+
+### Fixed
+- **Submit is only enabled when the form is complete.** It used to start enabled, and
+  came back enabled after an area was drawn, whatever the state of the form.
+- **Closing the dock no longer stops job tracking.** The close button ran the unload
+  routine, so polling stopped and did not resume when the dock was reopened. Now only
+  the map overlays and the pending estimate are dropped.
+- **Job cards show the area, cost and run time after a Refresh.** The three figures
+  were written to storage but never read back, so the line never appeared.
+- **Clicking a completed job a second time no longer adds another copy of its
+  layers.** The layer already on the map is zoomed to instead.
+- **The "Not covered" legend entry follows what is drawn.** It appeared for gaps too
+  small to be drawn on the map.
+- **The User-Agent reports the released version.** It is read from `metadata.txt`.
+
 ## [0.4.1] - 2026-09-10
 
 ### Fixed

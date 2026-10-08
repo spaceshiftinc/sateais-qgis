@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import contextlib
 import json
 import math
@@ -9,6 +10,7 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, NoReturn, Protocol, runtime_checkable
 
 from .errors import (
@@ -28,7 +30,17 @@ from .types import Job, JobStatus, Preview, preview_from_dict
 
 DEFAULT_API_BASE_URL = "https://api.spcsft.com"
 API_VERSION_PATH = "/api/v1"
-USER_AGENT = "sateais-qgis-plugin/0.3.0"
+
+
+def _plugin_version() -> str:
+    """The version QGIS shows for this plugin, read from metadata.txt."""
+    parser = configparser.ConfigParser()
+    parser.read(Path(__file__).resolve().parents[2] / "metadata.txt", encoding="utf-8")
+    return parser.get("general", "version", fallback="0.0.0")
+
+
+# Read rather than typed here, so it cannot drift from the released version.
+USER_AGENT = f"sateais-qgis-plugin/{_plugin_version()}"
 
 
 class _AuthStrippingRedirectHandler(urllib.request.HTTPRedirectHandler):

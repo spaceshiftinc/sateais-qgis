@@ -126,7 +126,13 @@ class SateAIsDockWidget(QDockWidget):
         self.analysis_panel.refresh_auth_state()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        self.teardown()
+        # Closing hides the dock; it is not unloaded. Job polling and a submit
+        # in flight carry on, as they do before the dock is first opened. Only
+        # what is drawn on the map and the pending estimate go.
+        self.analysis_panel.discard_estimate()
+        self._coverage_band.clear()
+        self._aoi_preview.clear()
+        self._previewed_job_id = None
         super().closeEvent(event)
 
     # --- polygon picker integration -----------------------------------------

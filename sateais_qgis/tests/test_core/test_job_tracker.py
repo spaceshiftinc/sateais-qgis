@@ -408,3 +408,43 @@ class TestListAllOrdering:
         assert len(jobs) == 4
         assert [j.submitted_at[:10] for j in jobs[:2]] == ["2026-09-03", "2026-08-19"]
         assert {j.submitted_at for j in jobs[2:]} == {"not a date", ""}
+
+
+class TestCompletionFigures:
+    """Area, cost and completion time arrive with a Refresh and must survive the next write."""
+
+    def test_round_trip_through_storage(self, fake_store):
+        job_tracker.add("ship", "j-1")
+        job_tracker.update_status(
+            "j-1",
+            "completed",
+            completed_at="2026-09-01T04:25:52Z",
+            area_sqkm=196.4,
+            credits_used=1.96,
+        )
+        # Every write re-reads the store, so an unrelated write must not lose them.
+        job_tracker.add("ship", "j-2")
+
+        job = next(j for j in job_tracker.list_all() if j.job_id == "j-1")
+        assert job.completed_at == "2026-09-01T04:25:52Z"
+        assert job.area_sqkm == pytest.approx(196.4)
+        assert job.credits_used == pytest.approx(1.96)
+
+    def test_figures_that_are_not_numbers_load_as_unknown(self, fake_store):
+        fake_store.setValue(
+            "jobs_v1",
+            json.dumps(
+                [
+                    {
+                        "job_id": "x",
+                        "analysis_type": "ship",
+                        "submitted_at": "2026-01-01T00:00:00+00:00",
+                        "area_sqkm": "big",
+                        "credits_used": True,
+                        "completed_at": 5,
+                    }
+                ]
+            ),
+        )
+        job = job_tracker.list_all()[0]
+        assert (job.area_sqkm, job.credits_used, job.completed_at) == (None, None, None)

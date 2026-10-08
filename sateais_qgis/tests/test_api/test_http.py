@@ -593,3 +593,14 @@ class TestNonJsonResult:
         )
         client = UrllibApiClient(api_key="sk_test")
         assert client.get_job("j").job_id == "j"
+
+
+def test_user_agent_carries_the_released_version():
+    from configparser import ConfigParser
+    from pathlib import Path
+
+    from sateais_qgis.core.api.http import USER_AGENT
+
+    parser = ConfigParser()
+    parser.read(Path(__file__).resolve().parents[2] / "metadata.txt", encoding="utf-8")
+    assert USER_AGENT == f"sateais-qgis-plugin/{parser['general']['version']}"

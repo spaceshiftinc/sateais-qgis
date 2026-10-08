@@ -261,6 +261,12 @@ class JobCard(QFrame):
         if self._job.polygon:
             self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
+    def apply_outcome(self, job: TrackedJob) -> None:
+        """Adopt the completion figures a Refresh brought back (area, cost, run time)."""
+        for field in ("completed_at", "area_sqkm", "credits_used"):
+            setattr(self._job, field, getattr(job, field))
+        self._refresh_request()
+
     def _refresh_request(self) -> None:
         """Render the request line and the full-detail tooltip."""
         # 並びの基準（投入日時）を上段に、要求した内容を下段に
