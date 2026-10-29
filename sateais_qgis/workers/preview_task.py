@@ -18,6 +18,7 @@ from ..core import wording
 from .submit_task import (
     ERROR_AUTH_FAILED,
     ERROR_AUTH_NOT_CONFIGURED,
+    ERROR_CODES,
     ERROR_INVALID_INPUT,
     ERROR_NETWORK_ERROR,
     ERROR_NOT_FOUND,
@@ -29,6 +30,20 @@ from .submit_task import (
 )
 
 LOG_TAG = "SateAIs"
+
+#: 入力そのものが断られたときのコード。同じ内容で投入しても同じ理由で断られる
+INPUT_REJECTED_CODES = frozenset({ERROR_INVALID_INPUT, ERROR_VALIDATION_FAILED})
+
+
+def rejects_inputs(payload: object) -> bool:
+    """失敗した見積もりが「この入力のままでは投入しても断られる」を意味するか。
+
+    残高・認証・権限・通信・サーバ障害は入力を変えなくても変わりうるので数えない。
+    コードでない文字列は ValidationError を言い換えた文（今は面積上限）なので数える。
+    """
+    if not isinstance(payload, str):
+        return False
+    return payload in INPUT_REJECTED_CODES or payload not in ERROR_CODES
 
 
 class PreviewWorker(QThread):

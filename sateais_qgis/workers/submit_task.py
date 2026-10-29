@@ -25,6 +25,23 @@ ERROR_RATE_LIMITED = "RATE_LIMITED"
 ERROR_SERVER_ERROR = "SERVER_ERROR"
 ERROR_NETWORK_ERROR = "NETWORK_ERROR"
 
+ERROR_CODES = frozenset(
+    {
+        ERROR_AUTH_NOT_CONFIGURED,
+        ERROR_AUTH_FAILED,
+        ERROR_PERMISSION_DENIED,
+        ERROR_INSUFFICIENT_CREDITS,
+        ERROR_INVALID_INPUT,
+        ERROR_VALIDATION_FAILED,
+        ERROR_NOT_FOUND,
+        ERROR_CONFLICT,
+        ERROR_PAYLOAD_TOO_LARGE,
+        ERROR_RATE_LIMITED,
+        ERROR_SERVER_ERROR,
+        ERROR_NETWORK_ERROR,
+    }
+)
+
 
 class SubmitAnalysisWorker(QThread):
     """Submit a detection job in the background and emit the resulting job id.

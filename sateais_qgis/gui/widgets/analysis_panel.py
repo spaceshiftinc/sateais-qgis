@@ -7,6 +7,7 @@ are guided to Settings before they can hit an auth error.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from qgis.core import Qgis
@@ -22,11 +23,11 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ...core import client_factory
+from ...core import client_factory, wording
 from ...core.api.types import Preview
 from ...workers import submit_task
 from ...workers.lifecycle import detach_worker
-from ...workers.preview_task import PreviewWorker
+from ...workers.preview_task import PreviewWorker, rejects_inputs
 from ...workers.submit_task import SubmitAnalysisWorker
 from ..auth_dialog import SIGNUP_URL
 from .balance_footer import BalanceFooter
@@ -73,6 +74,16 @@ ERROR_MESSAGES: dict[str, str] = {
 }
 
 
+class _SubmitHold(Enum):
+    """見積もりが投入ボタンを止めている理由"""
+
+    NONE = "none"
+    # いまの入力の見積もりを待っている
+    ESTIMATING = "estimating"
+    # 見積もりが「この入力のままでは実行できない」と答えた
+    REJECTED = "rejected"
+
+
 class AnalysisPanel(QWidget):
     """Analysis type selector + dynamic form + submit button."""
 
@@ -102,6 +113,10 @@ class AnalysisPanel(QWidget):
         self._preview_worker: PreviewWorker | None = None
         self._preview_seq = 0
         self._preview_retried = False
+        # 見積もりが投入ボタンを止めているか。入力を変えると見積もりがやり直される
+        # ので、「実行できない」で止めたボタンも自然に戻る
+        self._submit_hold = _SubmitHold.NONE
+        self._picking = False
         # 直前に地図へ描いた要求範囲。同じものを描き直すだけなら画面を動かさない
         self._shown_polygon = ""
         self._preview_timer = QTimer(self)
@@ -241,8 +256,8 @@ class AnalysisPanel(QWidget):
 
     def set_pick_in_progress(self, in_progress: bool) -> None:
         """Reflect the polygon-picker state in the form (disable Submit, show hint)."""
-        # No submitting mid-pick; afterwards only a complete form may submit.
-        self.submit_button.setEnabled(not in_progress and self.form.is_complete())
+        self._picking = in_progress
+        self._refresh_submit()
         if in_progress:
             self._show_status(
                 True,
@@ -258,7 +273,6 @@ class AnalysisPanel(QWidget):
     def _on_inputs_changed(self) -> None:
         """Inputs changed: drop the stale estimate and schedule a fresh one."""
         # 手順が揃うまでは投入させない。カードが残りを示している
-        self.submit_button.setEnabled(self.form.is_complete())
         self._drop_preview()
         kwargs = self._current_form().build_kwargs()
         polygon = (kwargs or {}).get("polygon")
@@ -274,6 +288,7 @@ class AnalysisPanel(QWidget):
         if kwargs is None or not polygon:
             return
         self._preview_retried = False
+        self._set_submit_hold(_SubmitHold.ESTIMATING)
         self._preview_timer.start()
 
     def discard_estimate(self) -> None:
@@ -290,9 +305,28 @@ class AnalysisPanel(QWidget):
         self._preview_seq += 1
         self._preview_timer.stop()
         self.estimate_card.reset()
+        self._set_submit_hold(_SubmitHold.NONE)
         # 残高も見積もり応答から来た値。入力が変われば前の応答の数字であって、
         # 残したままだとエラー表示の下に無関係な数字が居座り続ける
         self.balance_footer.clear()
+
+    def _set_submit_hold(self, hold: _SubmitHold) -> None:
+        self._submit_hold = hold
+        self._refresh_submit()
+
+    def _refresh_submit(self) -> None:
+        """投入ボタンの可否はここだけで決める。
+
+        入力が揃っていて、範囲の選択中でも投入中でもなく、いまの入力の見積もりが
+        返っていて、それが「この入力のままでは実行できない」でないときだけ押せる。
+        残高不足や通信の失敗では止めない（入力を変えずに直りうる。判断はサーバに任せる）
+        """
+        self.submit_button.setEnabled(
+            self.form.is_complete()
+            and not self._picking
+            and self._worker is None
+            and self._submit_hold is _SubmitHold.NONE
+        )
 
     def _detach_preview_worker(self) -> None:
         """Let go of the current estimate worker without waiting for it.
@@ -328,6 +362,7 @@ class AnalysisPanel(QWidget):
         self._preview_seq += 1
         seq = self._preview_seq
         self.estimate_card.show_busy()
+        self._set_submit_hold(_SubmitHold.ESTIMATING)
 
         worker = PreviewWorker(self._current_analysis_type(), dict(kwargs), parent=self)
         worker.finished_signal.connect(
@@ -350,6 +385,9 @@ class AnalysisPanel(QWidget):
 
         if ok and isinstance(payload, Preview):
             self._preview_retried = False
+            # シーンが無ければ、投入したジョブも同じ理由で失敗する
+            unavailable = wording.scenes_unavailable(payload.warnings)
+            self._set_submit_hold(_SubmitHold.REJECTED if unavailable else _SubmitHold.NONE)
             self.estimate_card.show_preview(payload)
             credits = payload.credits
             self.balance_footer.set_balance(
@@ -376,6 +414,8 @@ class AnalysisPanel(QWidget):
             reason = self.tr(mapped) if mapped else payload
         else:
             reason = ""
+        rejected = rejects_inputs(payload)
+        self._set_submit_hold(_SubmitHold.REJECTED if rejected else _SubmitHold.NONE)
         self.estimate_card.show_failed(reason)
 
     def _on_submit_clicked(self) -> None:
@@ -439,7 +479,7 @@ class AnalysisPanel(QWidget):
                 pass
 
         self.progress.setVisible(False)
-        self.submit_button.setEnabled(self.form.is_complete())
+        self._refresh_submit()
 
         if ok:
             job_id = payload
