@@ -3,6 +3,16 @@
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Submit is held when the estimate shows the request cannot run.** An area or period
+  over the limit, a malformed area, or no usable scene left Submit enabled, and the
+  server then turned the request down. Editing the inputs runs a new estimate and
+  releases the button. Submit also waits while the estimate for the current inputs is
+  being checked. A short balance or an estimate that could not be fetched still leaves
+  the decision to the server.
+
 ## [0.4.2] - 2026-10-01
 
 ### Fixed

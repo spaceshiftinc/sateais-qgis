@@ -19,6 +19,7 @@ if pyqt_available:
         PayloadTooLargeError,
         RateLimitError,
         ServerError,
+        ValidationError,
     )
     from sateais_qgis.core.api.types import Preview, PreviewCredits
     from sateais_qgis.core.client_factory import AuthNotConfiguredError
@@ -29,6 +30,7 @@ if pyqt_available:
         ERROR_PAYLOAD_TOO_LARGE,
         ERROR_RATE_LIMITED,
         ERROR_SERVER_ERROR,
+        ERROR_VALIDATION_FAILED,
     )
 
 
@@ -117,3 +119,40 @@ class TestPreviewWorker:
         ok, payload = _run_and_capture(PreviewWorker("newbuilding", {}))
         assert ok is False
         assert payload == ERROR_PAYLOAD_TOO_LARGE
+
+
+class TestRejectsInputs:
+    def test_the_area_limit_reaches_the_panel_as_a_rejection(self, monkeypatch):
+        message = "Polygon area (52.6 km²) exceeds 50 km² limit for endpoint 'timeseries'"
+        client = FakeClient(raise_exc=ValidationError(400, "VALIDATION_ERROR", message))
+        _install_build_client(monkeypatch, client)
+        ok, payload = _run_and_capture(PreviewWorker("timeseries", {}))
+        assert ok is False
+        assert payload != ERROR_VALIDATION_FAILED  # the sentence with both numbers
+        assert preview_task.rejects_inputs(payload)
+
+    def test_any_other_validation_failure_is_a_rejection(self, monkeypatch):
+        client = FakeClient(raise_exc=ValidationError(400, "VALIDATION_ERROR", "bad period"))
+        _install_build_client(monkeypatch, client)
+        ok, payload = _run_and_capture(PreviewWorker("newbuilding", {}))
+        assert payload == ERROR_VALIDATION_FAILED
+        assert preview_task.rejects_inputs(payload)
+
+    # Factories, not instances: the names only exist when PyQt does, and parameters are
+    # built at collection time, even for skipped tests
+    @pytest.mark.parametrize(
+        "make_exc",
+        [
+            pytest.param(lambda: ServerError(503, "SERVICE_UNAVAILABLE", "down"), id="server"),
+            pytest.param(lambda: RateLimitError(429, "RATE_LIMITED", "slow down"), id="rate"),
+            pytest.param(lambda: PayloadTooLargeError(413, "PAYLOAD_TOO_LARGE", "big"), id="size"),
+        ],
+    )
+    def test_server_side_failures_are_not(self, monkeypatch, make_exc):
+        _install_build_client(monkeypatch, FakeClient(raise_exc=make_exc()))
+        ok, payload = _run_and_capture(PreviewWorker("newbuilding", {}))
+        assert ok is False
+        assert not preview_task.rejects_inputs(payload)
+
+    def test_a_preview_object_is_not(self):
+        assert not preview_task.rejects_inputs(Preview())
