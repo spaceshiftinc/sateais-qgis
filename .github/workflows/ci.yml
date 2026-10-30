@@ -26,7 +26,8 @@ jobs:
       - run: ruff format --check .
 
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest (26.04) has no Python 3.9; keep testing the oldest supported Python
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         # QGIS LTR 3.34 / 3.40 ship Python 3.9; test the floor and a current version.
