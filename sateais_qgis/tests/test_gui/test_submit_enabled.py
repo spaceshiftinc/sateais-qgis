@@ -18,15 +18,8 @@ if pyqgis_available:
     from sateais_qgis.core import client_factory, wording
     from sateais_qgis.core.api.types import Preview
     from sateais_qgis.gui.widgets.analysis_panel import AnalysisPanel
-    from sateais_qgis.workers.submit_task import (
-        ERROR_AUTH_FAILED,
-        ERROR_INSUFFICIENT_CREDITS,
-        ERROR_NETWORK_ERROR,
-        ERROR_PERMISSION_DENIED,
-        ERROR_RATE_LIMITED,
-        ERROR_SERVER_ERROR,
-        ERROR_VALIDATION_FAILED,
-    )
+    from sateais_qgis.workers import submit_task
+    from sateais_qgis.workers.submit_task import ERROR_SERVER_ERROR, ERROR_VALIDATION_FAILED
 
 WKT = "POLYGON((139.6 35.6, 139.8 35.6, 139.8 35.8, 139.6 35.8, 139.6 35.6))"
 SMALLER_WKT = "POLYGON((139.6 35.6, 139.7 35.6, 139.7 35.7, 139.6 35.7, 139.6 35.6))"
@@ -127,20 +120,22 @@ def test_a_usable_estimate_keeps_submit(panel):
     assert panel.submit_button.isEnabled()
 
 
+# Names, not values: the constants only exist when PyQGIS does, and parameters are
+# built at collection time, even for skipped tests
 @pytest.mark.parametrize(
-    "code",
+    "code_name",
     [
-        ERROR_SERVER_ERROR,
-        ERROR_NETWORK_ERROR,
-        ERROR_RATE_LIMITED,
-        ERROR_INSUFFICIENT_CREDITS,
-        ERROR_AUTH_FAILED,
-        ERROR_PERMISSION_DENIED,
+        "ERROR_SERVER_ERROR",
+        "ERROR_NETWORK_ERROR",
+        "ERROR_RATE_LIMITED",
+        "ERROR_INSUFFICIENT_CREDITS",
+        "ERROR_AUTH_FAILED",
+        "ERROR_PERMISSION_DENIED",
     ],
 )
-def test_failures_that_can_clear_without_an_edit_leave_it_to_the_server(panel, code):
+def test_failures_that_can_clear_without_an_edit_leave_it_to_the_server(panel, code_name):
     _complete(panel)
-    _estimate_fails(panel, code)
+    _estimate_fails(panel, getattr(submit_task, code_name))
     assert panel.submit_button.isEnabled()
 
 

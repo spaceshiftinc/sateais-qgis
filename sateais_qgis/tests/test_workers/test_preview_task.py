@@ -138,16 +138,18 @@ class TestRejectsInputs:
         assert payload == ERROR_VALIDATION_FAILED
         assert preview_task.rejects_inputs(payload)
 
+    # Factories, not instances: the names only exist when PyQt does, and parameters are
+    # built at collection time, even for skipped tests
     @pytest.mark.parametrize(
-        "exc",
+        "make_exc",
         [
-            ServerError(503, "SERVICE_UNAVAILABLE", "down"),
-            RateLimitError(429, "RATE_LIMITED", "slow down"),
-            PayloadTooLargeError(413, "PAYLOAD_TOO_LARGE", "big"),
+            pytest.param(lambda: ServerError(503, "SERVICE_UNAVAILABLE", "down"), id="server"),
+            pytest.param(lambda: RateLimitError(429, "RATE_LIMITED", "slow down"), id="rate"),
+            pytest.param(lambda: PayloadTooLargeError(413, "PAYLOAD_TOO_LARGE", "big"), id="size"),
         ],
     )
-    def test_server_side_failures_are_not(self, monkeypatch, exc):
-        _install_build_client(monkeypatch, FakeClient(raise_exc=exc))
+    def test_server_side_failures_are_not(self, monkeypatch, make_exc):
+        _install_build_client(monkeypatch, FakeClient(raise_exc=make_exc()))
         ok, payload = _run_and_capture(PreviewWorker("newbuilding", {}))
         assert ok is False
         assert not preview_task.rejects_inputs(payload)
